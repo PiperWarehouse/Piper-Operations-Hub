@@ -572,28 +572,6 @@ export function dataQuality() {
 
 export { monthKey };`]);
 
-// ===================== config.js =====================
-ATL_SRC.push(['@atl/config.js', 0, `// Firebase web config — paste the values from
-// Firebase console ▸ Project settings ▸ General ▸ Your apps ▸ Web app ▸ SDK setup (Config).
-// These values are not secrets; access is controlled by firestore.rules and sign-in.
-//
-// While apiKey is left as "REPLACE_ME" the app runs in DEMO MODE: data is kept only in this
-// browser (localStorage) and no sign-in is required. Handy for trying it before Firebase is set up.
-//
-// Project: operational-dashboard-d1e8b. Still needed from the console: apiKey, messagingSenderId, appId.
-export const firebaseConfig = {
-  apiKey: 'REPLACE_ME',
-  authDomain: 'operational-dashboard-d1e8b.firebaseapp.com',
-  databaseURL: 'https://operational-dashboard-d1e8b-default-rtdb.firebaseio.com',
-  projectId: 'operational-dashboard-d1e8b',
-  storageBucket: 'operational-dashboard-d1e8b.firebasestorage.app',
-  messagingSenderId: '',
-  appId: '',
-};
-
-// Sign-in methods shown on the login screen (enable the same ones in Firebase ▸ Authentication).
-export const signInMethods = { google: true, microsoft: false, email: true };`]);
-
 // ===================== forms/writeup-template.js =====================
 ATL_SRC.push(['@atl/forms/writeup-template.js', 0, `// Employee Corrective Action / Write-Up - the Word template (blank), embedded so the app can fill it in.
 // Generated from ATLANTA\\SOP - EMPLOYEE FORMS\\Employee Write-Up Template.docx with every example value removed.

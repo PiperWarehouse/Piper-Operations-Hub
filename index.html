@@ -1399,6 +1399,8 @@ body { background: var(--page); color: var(--ink); }
 .tb-clock { flex: none; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
 /* Version box (build-single.ps1 -Version / save-version.ps1). */
 .tb-ver { flex: none; border: 1.5px solid var(--navy, #1a3a6b); color: var(--navy, #1a3a6b); background: #fff; border-radius: 6px; padding: 2px 9px; font-size: 12px; font-weight: 800; letter-spacing: .4px; white-space: nowrap; cursor: default; }
+.tb-ver small { margin-left: 7px; padding-left: 7px; border-left: 1px solid #c9d3e3; font-weight: 600; letter-spacing: 0; color: #4a5a72; }
+@media (max-width: 700px) { .tb-ver small { display: none; } }
 main { padding: 18px 22px 60px; max-width: 1800px; }
 .sb-scrim { display: none; }
 /* Top button: small and round at the bottom-right (VR-23). */
@@ -1569,6 +1571,11 @@ a.risk-card { display: block; color: var(--ink); text-decoration: none !importan
   .xl-ot-row, .xl-ot-row.two, .rs-pair { grid-template-columns: minmax(0, 1fr) !important; }
 }
 @media print { .sidebar, .topbar, .to-top { display: none !important; } .shell { display: block; } }
+
+/* Settings > Users & roles > Pages they see */
+.pg-group { border: 1px solid #e1e6ee; border-radius: 8px; padding: 6px 12px 10px; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; }
+.pg-group legend { font-weight: 700; font-size: 12px; padding: 0 4px; color: #4a5a72; text-transform: uppercase; letter-spacing: .4px; }
+.pg-item { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 3px 0; }
 </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
@@ -1583,8 +1590,8 @@ a.risk-card { display: block; color: var(--ink); text-decoration: none !importan
 <script src="atl-3.js"></script>
 <script src="atl-4.js"></script>
 <script src="atl-5.js"></script>
-<script>window.APP_VERSION = { v: 'V46', built: '2026-11-09 11:13' };
-const ATL_PARTS = [['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];</script>
+<script>window.APP_VERSION = { v: 'V48', built: '2026-11-09 13:34' };
+const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];</script>
 <script>
   // Loader: the atl-N.js files above put each module's source in ATL_SRC; turn them into an import map, then start.
   const parts = {};

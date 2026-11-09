@@ -151,6 +151,32 @@ export function toThroughput(parsed, customers) {
   });
 }`]);
 
+// ===================== config.js =====================
+ATL_SRC.push(['@atl/config.js', 0, `// Firebase web config — paste the values from
+// Firebase console ▸ Project settings ▸ General ▸ Your apps ▸ Web app ▸ SDK setup (Config).
+// These values are not secrets; access is controlled by firestore.rules and sign-in.
+//
+// While apiKey is left as "REPLACE_ME" the app runs in DEMO MODE: data is kept only in this
+// browser (localStorage) and no sign-in is required. Handy for trying it before Firebase is set up.
+//
+// Project: operational-dashboard-d1e8b (web app "Atlanta Ops").
+export const firebaseConfig = {
+  apiKey: 'AIzaSyDDzuY261G0rS8pcOVe42MBUAcYxiYtYUY',
+  authDomain: 'operational-dashboard-d1e8b.firebaseapp.com',
+  databaseURL: 'https://operational-dashboard-d1e8b-default-rtdb.firebaseio.com',
+  projectId: 'operational-dashboard-d1e8b',
+  storageBucket: 'operational-dashboard-d1e8b.firebasestorage.app',
+  messagingSenderId: '282370471714',
+  appId: '1:282370471714:web:2bfd406de10929f30c177b',
+};
+
+// Sign-in methods shown on the login screen (enable the same ones in Firebase ▸ Authentication).
+export const signInMethods = { google: true, microsoft: false, email: true };
+
+// Always admins (Josh Piper, Omar Contreras): their accounts become admin as soon as they sign in with this email,
+// once the email is verified. Keep this list the same as ADMIN_EMAILS in firestore.rules (lower case).
+export const adminEmails = ['joshuapiper@piperlogistics.com', 'ocontreras@piperlogistics.com'];`]);
+
 // ===================== forms/archive.js =====================
 ATL_SRC.push(['@atl/forms/archive.js', 0, `// Sent-reports archive (#/archive): a copy of every report the app sends — the email (recipients, subject, message)
 // and each attachment — filed by Report → year → month.
@@ -516,6 +542,309 @@ export function emlDraft(m) {
   }
   parts.push(\`--\${boundary}--\`, '');
   return new Blob([parts.join('\\r\\n')], { type: 'message/rfc822' });
+}`]);
+
+// ===================== forms/kpireport.js =====================
+ATL_SRC.push(['@atl/forms/kpireport.js', 0, `// Building monthly KPI report (6049 / 6021) for the monthly meetings: same layout as the Electrolit report — cover page,
+// executive summary (drafted from the data, editable), KPI table with targets and 12-month trend, highlights / areas of
+// focus, comments and action plan, a section per KPI area, 12-month trend charts and trend analysis — built from the
+// building dashboard's numbers. Outputs: Word, Print / Save as PDF, Outlook email with the Word report attached; every
+// output is archived (Sent Reports Archive ▸ Building Monthly KPI Report).
+import { store } from '@atl/store.js';
+import { dashboard } from '@atl/calc.js';
+import { esc, toast, downloadBlob, todayISO, fmtNum, fmtMoney, isISO, $, $$ } from '@atl/util.js';
+import { emlDraft } from '@atl/forms/email.js';
+import { archiveSent } from '@atl/forms/archive.js';
+import { prodData } from '@atl/views/dashboard.js';
+import { isRec } from '@atl/forms/incident.js';
+import { acrStats } from '@atl/westrock.js';
+import { analyze, goodness, ymAdd, ymRange, monthLabel, period } from '@atl/electrolit.js';
+import { fmtV, fmtDelta, chartImages, logoImage, reportDocx, reportHtml, printReport, downloadDocx, summaryHtml } from '@atl/forms/elxreport.js';
+
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const longMonth = ym => \`\${MONTHS[+ym.slice(5, 7) - 1]} \${ym.slice(0, 4)}\`;
+const us = iso => (isISO(iso) ? \`\${+iso.slice(5, 7)}/\${+iso.slice(8, 10)}/\${iso.slice(0, 4)}\` : '');
+const UNIT = { 6049: { unit: 'pallets', Unit: 'Pallets', dec: 0 }, 6021: { unit: 'tons', Unit: 'Tons', dec: 1 } };
+const n0 = v => (typeof v === 'number' && isFinite(v) ? v : '');
+
+// ---------------------------------------------------------------- one month's KPIs for a building
+function cacheFor(b) {
+  const dash = new Map(), prod = new Map();
+  return { d: y => dash.get(y) || dash.set(y, dashboard(b, y)).get(y), p: y => prod.get(y) || prod.set(y, prodData(b, y)).get(y) };
+}
+/** KPIs for building b and month ym (blank where the month has no data). */
+function monthKpis(b, ym, C) {
+  const y = +ym.slice(0, 4), i = +ym.slice(5, 7) - 1, d = C.d(y), p = C.p(y).months[i];
+  const future = ym > todayISO().slice(0, 7);
+  const o = d.otifMonthly[i], a = d.attMonthly[i], dm = d.dmgMonthly[i], ot = d.otMonthly[i], tp = d.tpMonthly[i];
+  const units = b === '6049' ? tp.p6049 : tp.t6021, has = !future;
+  const inc = store.rows('incidents').filter(r => String(r.facility) === b && String(r.date).startsWith(ym));
+  return {
+    ym, b, future,
+    accuracy: n0(o.accuracy), otif: has ? o.total : '', counted: has ? o.counted : '', loads: n0(+o.loads || ''),
+    attRate: n0(a.rate), tardies: has ? a.tardies : '', absences: has ? a.absences : '', leftEarly: has ? a.leftEarly : '', occ: has ? a.total : '', hc: n0(+a.hc || ''), numerator: a.numerator, workDays: a.workDays,
+    dmgN: has ? dm.n : '', dmgValue: has ? dm.value : '', dmgPiper: has ? dm.piper : '', units: units > 0 ? units : '', dmgRate: units > 0 ? (dm.n / units) * 10000 : '',
+    regH: ot.n ? ot.reg : '', otH: ot.n ? ot.ot : '', hours: ot.n ? ot.reg + ot.ot : '', otPct: n0(ot.pct),
+    prodOp: p.rOp > 0 ? p.rOp : '', prodAll: p.rAll > 0 ? p.rAll : '',
+    safety: has ? inc.length : '', recordable: has ? inc.filter(isRec).length : '',
+    // Electrolit NCRs (receiving OS&D audits) — 6049 only.
+    // Months before the first NCR / ACR on file show no data (not zero), so trends start when the history does.
+    ncr: b === '6049' && has && ym >= firstMonth('elxNcr') ? store.rows('elxNcr').filter(r => String(r.date).startsWith(ym)).length : '',
+    // WestRock arrival damage (ACRs) — 6021 only; rolls = distinct roll numbers.
+    ...(b === '6021' && has && ym >= firstMonth('wrAcr') ? (A => ({ wrAcr: A.n, wrRolls: A.rolls }))(acrStats(period(ym))) : { wrAcr: '', wrRolls: '' }),
+  };
+}
+/** Year to date through ym, rolled up the way the dashboard does. */
+function ytdKpis(b, ym, C) {
+  const months = ymRange(\`\${ym.slice(0, 4)}-01\`, ym).map(m => monthKpis(b, m, C));
+  const s = k => months.reduce((t, m) => t + (typeof m[k] === 'number' ? m[k] : 0), 0);
+  const loads = months.filter(m => m.loads > 0), hcm = months.filter(m => m.hc > 0);
+  const denom = hcm.reduce((t, m) => t + m.hc * m.workDays, 0), units = s('units'), reg = s('regH');
+  const weeks = C.p(+ym.slice(0, 4)).weeks.filter(w => w.week <= ym + '-31');
+  const avgW = k => { const v = weeks.map(w => w[k]).filter(x => typeof x === 'number' && x > 0); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : ''; };
+  return {
+    accuracy: loads.length ? 1 - loads.reduce((t, m) => t + m.counted, 0) / loads.reduce((t, m) => t + m.loads, 0) : '', otif: s('otif'), counted: s('counted'), loads: s('loads'),
+    attRate: denom ? 1 - hcm.reduce((t, m) => t + num(m.numerator), 0) / denom : '', tardies: s('tardies'), absences: s('absences'), leftEarly: s('leftEarly'), occ: s('occ'),
+    dmgN: s('dmgN'), dmgValue: s('dmgValue'), units, dmgRate: units > 0 ? (s('dmgN') / units) * 10000 : '',
+    regH: reg, otH: s('otH'), hours: s('hours'), otPct: reg > 0 ? s('otH') / reg : '', prodOp: avgW('rOp'), prodAll: avgW('rAll'), safety: s('safety'), recordable: s('recordable'), ncr: b === '6049' ? s('ncr') : '', wrAcr: b === '6021' ? s('wrAcr') : '', wrRolls: b === '6021' ? s('wrRolls') : '',
+  };
+}
+const num = v => (typeof v === 'number' ? v : +v || 0);
+/** First month with a record in a collection ('9999-99' when there are none). */
+const firstMonth = coll => store.rows(coll).map(r => String(r.date || '').slice(0, 7)).filter(m => /^\\d{4}-\\d\\d$/.test(m)).sort()[0] || '9999-99';
+
+// ---------------------------------------------------------------- measures
+export function kpiMetrics(b) {
+  const s = store.settings, U = UNIT[b], dt = s['damageTarget' + b];
+  return [
+    { key: 'accuracy', group: 'Quality', label: 'Order accuracy', unit: 'pct', better: 'up', target: s.orderAccuracyTarget, get: M => M.accuracy },
+    { key: 'otif', group: 'Quality', label: 'OTIF incidents', unit: 'num', better: 'down', get: M => M.otif },
+    { key: 'counted', group: 'Quality', label: 'Incidents counted in accuracy', unit: 'num', better: 'down', get: M => M.counted },
+    { key: 'attRate', group: 'Attendance', label: 'Attendance rate', unit: 'pct', better: 'up', target: s.attendanceTarget, get: M => M.attRate },
+    { key: 'tardies', group: 'Attendance', label: 'Tardies', unit: 'num', better: 'down', get: M => M.tardies },
+    { key: 'absences', group: 'Attendance', label: 'Absences', unit: 'num', better: 'down', get: M => M.absences },
+    { key: 'leftEarly', group: 'Attendance', label: 'Left early', unit: 'num', better: 'down', get: M => M.leftEarly },
+    { key: 'dmgRate', group: 'Damage', label: \`Damage rate per 10,000 \${U.unit}\`, unit: 'num2', better: 'down', target: dt === '' || dt == null ? undefined : +dt, get: M => M.dmgRate },
+    { key: 'dmgN', group: 'Damage', label: 'Damage incidents', unit: 'num', better: 'down', get: M => M.dmgN },
+    { key: 'dmgValue', group: 'Damage', label: 'Est. $ damage', unit: 'money', better: 'down', get: M => M.dmgValue },
+    { key: 'otPct', group: 'Labor', label: 'Overtime %', unit: 'pct1', better: 'down', target: 0.08, get: M => M.otPct },
+    { key: 'hours', group: 'Labor', label: 'Labor hours (reg + OT)', unit: 'num', better: '', get: M => M.hours },
+    { key: 'units', group: 'Throughput', label: \`Throughput (\${U.unit})\`, unit: b === '6021' ? 'num1' : 'num', better: '', get: M => M.units },
+    { key: 'prodOp', group: 'Throughput', label: \`\${U.Unit} / hr — operators\`, unit: 'num1', better: 'up', target: num(s['prodTargetOp' + b]) || undefined, get: M => M.prodOp },
+    { key: 'prodAll', group: 'Throughput', label: \`\${U.Unit} / hr — all hours\`, unit: 'num1', better: 'up', target: num(s['prodTargetAll' + b]) || undefined, get: M => M.prodAll },
+    ...(b === '6021' ? [{ key: 'wrAcr', group: 'Damage', label: 'WestRock damaged arrivals (ACRs)', unit: 'num', better: 'down', get: M => M.wrAcr }, { key: 'wrRolls', group: 'Damage', label: 'WestRock rolls damaged on arrival', unit: 'num', better: 'down', get: M => M.wrRolls }] : []),
+    ...(b === '6049' ? [{ key: 'elxNcr', group: 'Quality', label: 'Electrolit NCRs (receiving OS&D)', unit: 'num', better: 'down', get: M => M.ncr }] : []),
+    { key: 'safety', group: 'Safety', label: 'Safety incident reports', unit: 'num', better: 'down', get: M => M.safety },
+    { key: 'recordable', group: 'Safety', label: 'OSHA recordable cases', unit: 'num', better: 'down', get: M => M.recordable },
+  ];
+}
+const fv = (m, v) => (m.unit === 'pct1' ? (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : '—') : m.unit === 'num2' ? (typeof v === 'number' ? fmtNum(v, 2) : '—') : fmtV(m, v));
+const fd = (m, d) => (m.unit === 'pct1' ? fmtDelta({ unit: 'pct' }, d) : m.unit === 'num2' ? (typeof d === 'number' ? (d > 0 ? '+' : d < 0 ? '−' : '') + fmtNum(Math.abs(d), 2) : '—') : fmtDelta(m, d));
+const arrow = t => ({ Improving: '▲ Improving', Worsening: '▼ Worsening', Rising: '▲ Rising', Falling: '▼ Falling', Steady: '► Steady' }[t] || '—');
+const KPI_KEYS_ALL = ['accuracy', 'attRate', 'dmgRate', 'otPct', 'units', 'prodOp', 'prodAll', 'otif', 'elxNcr', 'wrRolls', 'recordable'];
+
+// ---------------------------------------------------------------- charts
+const COL = { navy: '#16325c', red: '#c0392b', tan: '#c0904d', teal: '#2a9d8f', blue: '#8fa8cc', green: '#1e8e5a' };
+const lbl = rows => rows.map(r => monthLabel(r.ym));
+const val = (rows, m, x = 1, d = 2) => rows.map(r => { const v = m.get(r.S); return typeof v === 'number' ? +(v * x).toFixed(d) : null; });
+const ln = (label, data, c, dash) => ({ type: 'line', label, data, borderColor: c, backgroundColor: c, pointBackgroundColor: '#fff', pointBorderColor: c, pointRadius: 3, pointBorderWidth: 2, borderWidth: 2.4, spanGaps: true, tension: 0.25, ...(dash ? { borderDash: [6, 4], pointRadius: 0 } : {}) });
+const tgt = (rows, v, label) => (typeof v === 'number' ? [ln(label, rows.map(() => v), COL.green, true)] : []);
+function kpiCharts(b) {
+  const M = Object.fromEntries(kpiMetrics(b).map(m => [m.key, m])), U = UNIT[b];
+  return [
+    { id: 'acc', title: 'Order accuracy vs target', config: rows => ({ type: 'line', data: { labels: lbl(rows), datasets: [ln('Order accuracy %', val(rows, M.accuracy, 100), COL.navy), ...tgt(rows, M.accuracy.target * 100, 'Target')] }, options: { scales: { y: { suggestedMin: 97, max: 100, ticks: { callback: v => v + '%' } } } } }) },
+    { id: 'att', title: 'Attendance rate vs target', config: rows => ({ type: 'line', data: { labels: lbl(rows), datasets: [ln('Attendance %', val(rows, M.attRate, 100), COL.teal), ...tgt(rows, M.attRate.target * 100, 'Target')] }, options: { scales: { y: { suggestedMin: 90, max: 100, ticks: { callback: v => v + '%' } } } } }) },
+    { id: 'occ', title: 'Attendance occurrences', config: rows => ({ type: 'bar', data: { labels: lbl(rows), datasets: [['Tardies', M.tardies, COL.tan], ['Absences', M.absences, COL.red], ['Left early', M.leftEarly, COL.navy]].map(([l, m, c]) => ({ type: 'bar', label: l, data: val(rows, m, 1, 0), backgroundColor: c, stack: 'o' })) }, options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } } }) },
+    { id: 'ot', title: 'Overtime % (8% limit)', config: rows => ({ type: 'bar', data: { labels: lbl(rows), datasets: [{ type: 'bar', label: 'OT %', data: val(rows, M.otPct, 100, 1), backgroundColor: val(rows, M.otPct, 100, 1).map(v => (v > 8 ? COL.red : COL.blue)) }, ...tgt(rows, 8, '8% limit')] }, options: { scales: { y: { beginAtZero: true, ticks: { callback: v => v + '%' } } } } }) },
+    { id: 'dmg', title: \`Damage rate per 10,000 \${U.unit}\`, config: rows => ({ type: 'line', data: { labels: lbl(rows), datasets: [{ ...ln('Damage rate', val(rows, M.dmgRate, 1, 2), COL.red), fill: true, backgroundColor: 'rgba(192,57,43,.10)' }, ...tgt(rows, M.dmgRate.target, 'Target')] }, options: { scales: { y: { beginAtZero: true } } } }) },
+    { id: 'tp', title: \`Throughput (\${U.unit})\`, config: rows => ({ type: 'bar', data: { labels: lbl(rows), datasets: [{ type: 'bar', label: U.Unit, data: val(rows, M.units, 1, 1), backgroundColor: COL.navy }] }, options: { scales: { y: { beginAtZero: true } } } }) },
+    { id: 'prod', title: \`Labor productivity (\${U.unit} / hr)\`, config: rows => ({ type: 'line', data: { labels: lbl(rows), datasets: [ln('Operators', val(rows, M.prodOp, 1, 1), COL.navy), ln('All hours', val(rows, M.prodAll, 1, 1), COL.tan), ...tgt(rows, M.prodOp.target, 'Operator target')] }, options: { scales: { y: { beginAtZero: true } } } }) },
+    { id: 'otif', title: 'OTIF incidents', config: rows => ({ type: 'bar', data: { labels: lbl(rows), datasets: [{ type: 'bar', label: 'Incidents', data: val(rows, M.otif, 1, 0), backgroundColor: COL.tan }, { type: 'bar', label: 'Counted in accuracy', data: val(rows, M.counted, 1, 0), backgroundColor: COL.red }] }, options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } }) },
+  ];
+}
+
+// ---------------------------------------------------------------- data, summary, blocks
+export function kpiData(b, ym) {
+  const C = cacheFor(b), metrics = kpiMetrics(b);
+  const rows = ymRange(ymAdd(ym, -11), ym).map(m => ({ ym: m, S: monthKpis(b, m, C) }));
+  rows.lookup = m => monthKpis(b, m, C);
+  const S = rows.at(-1).S, prev = rows.at(-2).S, Y = ytdKpis(b, ym, C);
+  const an = Object.fromEntries(metrics.map(m => [m.key, analyze(rows, m)]));
+  return { b, ym, C, rows, S, prev, Y, metrics, M: Object.fromEntries(metrics.map(m => [m.key, m])), an, d: C.d(+ym.slice(0, 4)) };
+}
+export function draftKpiSummary(D) {
+  const { S, prev, M, ym, b } = D, U = UNIT[b], out = [], mon = longMonth(ym), pm = MONTHS[(+ym.slice(5, 7) + 10) % 12];
+  const vs = (m, v, p) => (typeof v === 'number' && typeof p === 'number' && fv(m, v) !== fv(m, p) ? \` (\${goodness(m, v - p) > 0 ? 'better than' : 'vs'} \${fv(m, p)} in \${pm})\` : '');
+  const tg = (m, v) => (typeof m.target === 'number' && typeof v === 'number' ? ((m.better === 'up' ? v >= m.target : v <= m.target) ? ', meeting the target' : \`, short of the \${fv(m, m.target)} target\`) : '');
+  if (typeof S.units === 'number') out.push(\`In \${mon}, Facility \${b} handled \${fmtNum(S.units, U.dec)} \${U.unit} with \${fmtNum(S.hours || 0)} labor hours\${typeof S.prodOp === 'number' ? \`; operator productivity averaged \${fmtNum(S.prodOp, 1)} \${U.unit} per hour\${tg(M.prodOp, S.prodOp)}\` : ''}.\`);
+  if (typeof S.accuracy === 'number') out.push(\`Order accuracy was \${fv(M.accuracy, S.accuracy)}\${tg(M.accuracy, S.accuracy)}\${vs(M.accuracy, S.accuracy, prev.accuracy)}, with \${S.otif} OTIF incident\${S.otif === 1 ? '' : 's'} logged (\${S.counted} counted against accuracy).\`);
+  else if (typeof S.otif === 'number') out.push(\`\${S.otif} OTIF incident\${S.otif === 1 ? ' was' : 's were'} logged; order accuracy needs the month's loads shipped (Monthly Inputs).\`);
+  if (typeof S.attRate === 'number') out.push(\`Attendance was \${fv(M.attRate, S.attRate)}\${tg(M.attRate, S.attRate)}\${vs(M.attRate, S.attRate, prev.attRate)} — \${S.tardies} tard\${S.tardies === 1 ? 'y' : 'ies'}, \${S.absences} absence\${S.absences === 1 ? '' : 's'} and \${S.leftEarly} early departure\${S.leftEarly === 1 ? '' : 's'}.\`);
+  if (typeof S.otPct === 'number') out.push(\`Overtime was \${fv(M.otPct, S.otPct)} of regular hours\${S.otPct > 0.08 ? ', above the 8% limit' : ', within the 8% limit'}\${vs(M.otPct, S.otPct, prev.otPct)}.\`);
+  if (typeof S.dmgN === 'number') out.push(S.dmgN ? \`\${S.dmgN} damage incident\${S.dmgN === 1 ? ' was' : 's were'} logged (est. \${fmtMoney(S.dmgValue)})\${typeof S.dmgRate === 'number' ? \`, a rate of \${fv(M.dmgRate, S.dmgRate)} per 10,000 \${U.unit}\${tg(M.dmgRate, S.dmgRate)}\` : ''}.\` : 'No damage was logged this month.');
+  if (typeof S.safety === 'number') out.push(S.recordable ? \`There \${S.recordable === 1 ? 'was one OSHA recordable case' : \`were \${S.recordable} OSHA recordable cases\`} this month (\${S.safety} safety report\${S.safety === 1 ? '' : 's'} in all).\` : \`There were no OSHA recordable injuries this month\${S.safety ? \` (\${S.safety} safety report\${S.safety === 1 ? '' : 's'} filed)\` : ''}.\`);
+  return out.join('\\n\\n');
+}
+function highlights(D) {
+  const good = [], watch = [];
+  for (const k of KPI_KEYS_ALL.filter(k => D.M[k])) {
+    const m = D.M[k], v = m.get(D.S), p = m.get(D.prev);
+    if (typeof v !== 'number') continue;
+    if (typeof m.target === 'number' && m.better) { const ok = m.better === 'up' ? v >= m.target : v <= m.target; (ok ? good : watch).push(\`\${m.label}: \${fv(m, v)} — \${ok ? 'on target' : 'below target'} (\${fv(m, m.target)})\`); continue; }
+    const g = goodness(m, typeof p === 'number' ? v - p : '');
+    if (g > 0) good.push(\`\${m.label} improved to \${fv(m, v)} (\${fd(m, v - p)})\`); else if (g < 0) watch.push(\`\${m.label} moved to \${fv(m, v)} (\${fd(m, v - p)} vs last month)\`);
+  }
+  for (const k of KPI_KEYS_ALL.filter(k => D.M[k])) if (D.an[k]?.trend === 'Worsening') watch.push(\`\${D.M[k].label} has been trending the wrong way over the last 12 months\`);
+  return { good, watch };
+}
+
+function kpiBlocks(D, o) {
+  const { S, prev, Y, M, an, ym, b, d } = D, U = UNIT[b], mon = longMonth(ym), m0 = mon.split(' ')[0], i = +ym.slice(5, 7) - 1, B = [];
+  B.push({ t: 'cover', title: 'Monthly KPI Report', customer: \`Facility \${b}\`, month: mon, site: \`Piper Warehouse — Atlanta Division · \${b === '6049' ? 'pallets' : 'tons'}\`, preparedFor: o.preparedFor || 'Monthly operations meeting', preparedBy: o.preparedBy || '', date: us(todayISO()), logo: o.logo,
+    contents: ['Executive summary', 'Order accuracy & OTIF', 'Attendance', 'Damage', 'Overtime & labor', 'Throughput & productivity', 'Safety', '12-month trends'] });
+  B.push({ t: 'break' });
+  B.push({ t: 'h1', text: '1. Executive summary' });
+  for (const p of String(o.summary || draftKpiSummary(D)).split(/\\n\\s*\\n/)) if (p.trim()) B.push({ t: 'p', text: p.trim() });
+  B.push({ t: 'h2', text: 'Key performance indicators' });
+  B.push({ t: 'table', widths: [2700, 1250, 1250, 1250, 1250, 1100, 1280], head: ['Measure', m0, 'Prior month', '3-month avg', 'Year to date', 'Target', '12-month trend'],
+    rows: KPI_KEYS_ALL.filter(k => M[k]).map(k => { const m = M[k], a = an[k]; return [m.label, fv(m, m.get(S)), fv(m, m.get(prev)), fv(m, a.avg3), fv(m, m.get(Y)), typeof m.target === 'number' ? fv(m, m.target) : '—', a.n ? arrow(a.trend) : '—']; }) });
+  const hl = highlights(D);
+  if (hl.good.length) { B.push({ t: 'h2', text: 'Highlights' }); B.push({ t: 'bullets', items: hl.good }); }
+  if (hl.watch.length) { B.push({ t: 'h2', text: 'Areas of focus' }); B.push({ t: 'bullets', items: hl.watch }); }
+  if (String(o.comments || '').trim()) { B.push({ t: 'h2', text: 'Comments and action plan' }); for (const p of o.comments.split(/\\n\\s*\\n/)) if (p.trim()) B.push({ t: 'p', text: p.trim() }); }
+
+  const cmp = keys => ({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['', m0, 'Prior month', 'Year to date'], rows: keys.map(k => [M[k].label, fv(M[k], M[k].get(S)), fv(M[k], M[k].get(prev)), fv(M[k], M[k].get(Y))]) });
+  // 2. Order accuracy
+  B.push({ t: 'h1', text: '2. Order accuracy & OTIF' });
+  B.push(cmp(['accuracy', 'otif', 'counted', ...(b === '6049' ? ['elxNcr'] : [])]));
+  B.push({ t: 'note', text: \`Order accuracy = 1 − OTIF incidents that count in accuracy ÷ loads shipped (\${fmtNum(+d.otifMonthly[i].loads || 0)} loads in \${m0}). Target \${fv(M.accuracy, M.accuracy.target)}.\` });
+  const inc = d.otif.filter(r => String(r.date).startsWith(ym)).sort((a, z) => String(a.date).localeCompare(String(z.date)));
+  if (b === '6049') {
+    const ncr = store.rows('elxNcr').filter(r => String(r.date).startsWith(ym)).sort((a, z) => String(a.date).localeCompare(String(z.date)));
+    if (ncr.length) B.push({ t: 'table', widths: [1150, 1300, 1700, 1100, 1250, 700, 2880], head: ['Date', 'Ref #', 'Category', 'SKU', 'Lot', 'Pieces', 'Details'], rows: ncr.map(r => [us(r.date), r.ref || r.id, r.category || '', r.sku || '', r.lot || '', String(num(r.pieces)), r.details || '']), caption: \`Electrolit NCRs — receiving OS&D audits (\${ncr.length})\` });
+  }
+  B.push(inc.length ? { t: 'table', widths: [1100, 1150, 1350, 1150, 1350, 1700, 2280], head: ['Date', 'OTIF #', 'Customer', 'Type', 'Category', 'Responsible', 'Description'], rows: inc.map(r => [us(r.date), r.id, r.customer || '', r.type || '', r.category || '', r.responsible || '', r.description || '']), caption: \`OTIF incidents in \${m0} (\${inc.length})\` } : { t: 'p', text: \`No OTIF incidents were logged in \${m0}.\` });
+  // 3. Attendance
+  B.push({ t: 'h1', text: '3. Attendance' });
+  B.push(cmp(['attRate', 'tardies', 'absences', 'leftEarly']));
+  const occ = d.att.filter(r => String(r.date).startsWith(ym) && r.occurrence && r.occurrence !== 'On Time'), by = new Map();
+  for (const r of occ) { const e = by.get(r.employee) || { name: r.employee, T: 0, A: 0, L: 0 }; if (r.occurrence === 'Tardy') e.T++; else if (r.occurrence === 'Absent') e.A++; else if (r.occurrence === 'Left Early') e.L++; by.set(r.employee, e); }
+  const top = [...by.values()].map(e => ({ ...e, n: e.T + e.A + e.L })).sort((a, z) => z.n - a.n || a.name.localeCompare(z.name)).slice(0, 10);
+  if (top.length) B.push({ t: 'table', widths: [4080, 1500, 1500, 1500, 1500], head: ['Employee', 'Tardies', 'Absences', 'Left early', 'Total'], rows: top.map(e => [e.name, String(e.T), String(e.A), String(e.L), String(e.n)]), caption: \`Most occurrences in \${m0}\` });
+  B.push({ t: 'note', text: \`Attendance rate = 1 − occurrences ÷ (headcount × work days); headcount \${fmtNum(+S.hc || 0)}. Target \${fv(M.attRate, M.attRate.target)}.\` });
+  // 4. Damage
+  B.push({ t: 'h1', text: '4. Damage' });
+  B.push(cmp(['dmgRate', 'dmgN', 'dmgValue', ...(b === '6021' ? ['wrAcr', 'wrRolls'] : [])]));
+  if (b === '6021') {
+    const A = acrStats(period(ym));
+    if (A.n) B.push({ t: 'table', widths: [1150, 1150, 900, 2300, 1500, 800, 800, 2480], head: ['Date', 'Ref #', 'Mode', 'Origin', 'Truck / railcar', 'Rolls', 'Laps', 'Damage'], rows: A.list.map(r => [us(r.date), r.ref, r.mode, r.origin, r.manifest, String(r.rollCount), String(r.laps), [r.types, r.radial ? 'radial' : ''].filter(Boolean).join(' · ')]), caption: \`WestRock arrival damage — Arrival Condition Reports (\${A.n})\` });
+  }
+  const dmg = d.dmg.filter(r => String(r.date).startsWith(ym)).sort((a, z) => String(a.date).localeCompare(String(z.date)));
+  if (dmg.length) B.push({ t: 'table', widths: [1100, 1500, 1500, 1500, 1680, 1300, 1500], head: ['Date', 'Customer', 'Type', 'Cause', 'Responsible', 'Qty', 'Est. $'], rows: dmg.map(r => [us(r.date), r.customer || '', r.damageType || '', r.cause || '', r.responsible || '', \`\${fmtNum(num(r.qty))} \${r.unit || ''}\`.trim(), fmtMoney(num(r.value))]), caption: \`Damage in \${m0} (\${dmg.length})\` });
+  // 5. Overtime
+  B.push({ t: 'h1', text: '5. Overtime & labor' });
+  B.push({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['', m0, 'Prior month', 'Year to date'], rows: [['Regular hours', fmtNum(num(S.regH), 1), fmtNum(num(prev.regH), 1), fmtNum(num(Y.regH), 1)], ['OT hours', fmtNum(num(S.otH), 1), fmtNum(num(prev.otH), 1), fmtNum(num(Y.otH), 1)], [M.otPct.label, fv(M.otPct, S.otPct), fv(M.otPct, prev.otPct), fv(M.otPct, Y.otPct)]] });
+  const lab = new Map();
+  for (const r of store.rows('labor').filter(r => String(r.building) === b && String(r.weekEnding).startsWith(ym))) { const e = lab.get(r.employee) || { name: r.employee, reg: 0, ot: 0 }; e.reg += num(r.reg); e.ot += num(r.ot); lab.set(r.employee, e); }
+  const otTop = [...lab.values()].filter(e => e.reg > 0 && e.ot > 0).map(e => ({ ...e, pct: e.ot / e.reg })).sort((a, z) => z.pct - a.pct).slice(0, 8);
+  if (otTop.length) B.push({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['Employee', 'Regular hours', 'OT hours', 'OT %'], rows: otTop.map(e => [e.name, fmtNum(e.reg, 1), fmtNum(e.ot, 1), (e.pct * 100).toFixed(1) + '%']), caption: \`Highest individual OT % in \${m0}\` });
+  // 6. Throughput
+  B.push({ t: 'h1', text: '6. Throughput & productivity' });
+  B.push(cmp(['units', 'prodOp', 'prodAll']));
+  const cust = new Map();
+  for (const r of d.tp.filter(r => String(r.building) === b && String(r.weekEnding).startsWith(ym))) cust.set(r.customer, (cust.get(r.customer) || 0) + num(r.total));
+  const cl = [...cust.entries()].filter(([, v]) => v > 0).sort((a, z) => z[1] - a[1]);
+  if (cl.length) B.push({ t: 'table', widths: [5040, 2520, 2520], head: ['Customer', U.Unit, 'Share'], rows: cl.map(([c, v]) => [c, fmtNum(v, U.dec), ((v / cl.reduce((t, x) => t + x[1], 0)) * 100).toFixed(0) + '%']), caption: \`Throughput by customer — \${m0}\` });
+  B.push({ t: 'note', text: \`\${U.Unit} per hour = \${U.unit} in + out ÷ hours worked, averaged over the weeks of the month. Targets: operators \${fv(M.prodOp, M.prodOp.target)}, all hours \${fv(M.prodAll, M.prodAll.target)}.\` });
+  // 7. Safety
+  B.push({ t: 'h1', text: '7. Safety' });
+  B.push(cmp(['safety', 'recordable']));
+  const sr = store.rows('incidents').filter(r => String(r.facility) === b && String(r.date).startsWith(ym)).sort((a, z) => String(a.date).localeCompare(String(z.date)));
+  if (sr.length) B.push({ t: 'table', widths: [1500, 1300, 2600, 2180, 1250, 1250], head: ['Report #', 'Date', 'Incident type', 'Category', 'Recordable', 'Status'], rows: sr.map(r => [r.oshaCaseNo || r.id, us(r.date), (r.types || []).join(', '), (r.categories || []).join(', '), isRec(r) ? 'Yes' : r.recordable === 'No' ? 'No' : r.recordable || '', r.status || 'Open']) });
+  // 8. Trends
+  B.push({ t: 'h1', text: '8. 12-month trends' });
+  B.push({ t: 'note', text: \`\${monthLabel(D.rows[0].ym)} – \${monthLabel(ym)}. Trend = the direction of the best-fit line through the months with data.\` });
+  for (const c of kpiCharts(b)) if (o.charts?.[c.id]) B.push({ t: 'img', ...o.charts[c.id], caption: c.title });
+  B.push({ t: 'h2', text: 'Trend analysis' });
+  B.push({ t: 'table', widths: [2900, 1300, 1300, 1300, 1580, 1700], head: ['Measure', 'Latest', '3-month avg', '12-month avg', 'vs same month last year', 'Trend'],
+    rows: D.metrics.map(m => { const a = an[m.key]; return a.n ? [m.label, fv(m, a.last.v), fv(m, a.avg3), fv(m, a.avg12), a.lastYear ? fd(m, a.yoy) : '—', arrow(a.trend)] : [m.label, '—', '—', '—', '—', 'No data']; }) });
+  return B;
+}
+
+// ---------------------------------------------------------------- build + outputs
+export const kpiReportName = (b, ym) => \`Facility \${b} Monthly KPI Report \${longMonth(ym)}\`;
+export async function buildKpiReport(b, ym, o = {}) {
+  const D = kpiData(b, ym);
+  const [charts, logo] = await Promise.all([chartImages(D.rows, 1000, 400, kpiCharts(b)), logoImage()]);
+  const blocks = kpiBlocks(D, { ...o, charts, logo }), name = kpiReportName(b, ym), footer = \`\${name} · Piper Warehouse\`;
+  return { D, blocks, name, kind: 'kpiMonthly', building: b, ref: \`facility-\${b}\`, docx: () => reportDocx(blocks, footer), html: () => reportHtml(blocks, name, footer) };
+}
+export async function emailKpiReport(R, to = '', signer = '') {
+  const { S, M, ym, b } = R.D;
+  const rows = KPI_KEYS_ALL.filter(k => M[k]).map(k => { const m = M[k], v = m.get(S); return typeof v === 'number' ? \`<tr><td style="padding:4px 10px;border:1px solid #d5dbe4">\${esc(m.label)}</td><td style="padding:4px 10px;border:1px solid #d5dbe4;text-align:right"><b>\${esc(fv(m, v))}</b></td><td style="padding:4px 10px;border:1px solid #d5dbe4;text-align:right;color:#5b6676">\${typeof m.target === 'number' ? 'target ' + esc(fv(m, m.target)) : ''}</td></tr>\` : ''; }).join('');
+  const html = \`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1c232d"><p>Hello,</p>
+    <p>Attached is the Facility \${esc(b)} monthly KPI report for <b>\${esc(longMonth(ym))}</b> for our monthly meeting.</p>
+    \${summaryHtml(R.blocks)}<p style="margin:0 0 4px"><b>Key results</b></p>
+    <table style="border-collapse:collapse;font-size:10.5pt;margin:6px 0 12px">\${rows}</table>
+    <p>The report covers the executive summary, order accuracy and OTIF incidents, attendance, damage, overtime, throughput and productivity, safety, and 12-month trends.</p>
+    <p>Thank you,<br>\${esc(signer || '')}</p></div>\`;
+  const bytes = new Uint8Array(await R.docx().arrayBuffer()), subject = \`\${R.name} — Piper Warehouse\`, attachments = [[\`\${R.name}.docx\`, bytes, DOCX]];
+  downloadBlob(\`\${R.name}.eml\`, emlDraft({ to, subject, html, attachments }));
+  // The Word report is saved to Downloads as well, in case the mail app does not show the attachment (new Outlook).
+  setTimeout(() => downloadBlob(\`\${R.name}.docx\`, new Blob([bytes], { type: DOCX })), 400);
+  await archiveSent({ kind: 'kpiMonthly', building: b, fileDate: ym + '-01', title: R.name, subject, to, html, attachments, ref: \`facility-\${b}-\${ym}\` });
+}
+
+// ---------------------------------------------------------------- the form (dashboard button)
+const cfgId = b => \`config-\${b}\`;
+export function openKpiReportForm(b, defaultYm) {
+  const saved = id => store.rows('kpiReports').find(r => r.id === id) || {};
+  const months = ymRange(ymAdd(todayISO().slice(0, 7), -35), todayISO().slice(0, 7)).reverse();
+  let ym = defaultYm;
+  document.querySelector('.elx-rep-back')?.remove();
+  const el = document.createElement('div');
+  el.className = 'modal-back elx-rep-back';
+  const fill = () => {
+    const s = saved(\`\${b}-\${ym}\`), cfg = saved(cfgId(b));
+    el.innerHTML = \`<form class="modal elx-rep" role="dialog" aria-modal="true" aria-labelledby="kpi-rep-t">
+      <div class="modal-head"><h2 id="kpi-rep-t">📄 Facility \${esc(b)} — monthly KPI report</h2><button type="button" class="icon-btn" data-x aria-label="Close">✕</button></div>
+      <p class="muted small">Cover page, executive summary, KPI table with targets, order accuracy and OTIF incidents, attendance, damage, overtime, throughput and productivity, safety, 12-month trends. Edit the summary and comments, then print / save as PDF, download Word, or create the email. Every copy is kept in the Sent Reports Archive.</p>
+      <div class="elx-set-grid">
+        <label>Report month <select name="ym">\${months.map(m => \`<option value="\${m}"\${m === ym ? ' selected' : ''}>\${monthLabel(m)}</option>\`).join('')}</select></label>
+        <label>Prepared for <input name="preparedFor" value="\${esc(s.preparedFor || cfg.preparedFor || 'Monthly operations meeting')}"></label>
+        <label>Prepared by <input name="preparedBy" value="\${esc(s.preparedBy || cfg.preparedBy || store.user?.name || '')}"></label>
+        <label class="wide">Email to <input name="to" value="\${esc(cfg.to || '')}" placeholder="name@company.com; …"></label>
+        <label class="wide">Executive summary <span class="muted small">(drafted from the data — edit as needed; blank lines separate paragraphs)</span><textarea name="summary" rows="9">\${esc(s.summary || draftKpiSummary(kpiData(b, ym)))}</textarea></label>
+        <label class="wide">Comments and action plan <span class="muted small">(optional)</span><textarea name="comments" rows="4" placeholder="Action items, owners, due dates…">\${esc(s.comments || '')}</textarea></label>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn ghost" data-redraft>↻ Redraft summary</button><span class="grow"></span>
+        <button type="button" class="btn ghost" data-out="print">🖨 Print / PDF</button><button type="button" class="btn" data-out="word">⬇ Word</button><button type="submit" class="btn primary">✉ Create email</button></div></form>\`;
+    const form = $('form', el), f = form.elements;
+    $('[data-x]', el).addEventListener('click', () => el.remove());
+    f.ym.addEventListener('change', () => { ym = f.ym.value; fill(); });
+    $('[data-redraft]', el).addEventListener('click', () => { f.summary.value = draftKpiSummary(kpiData(b, ym)); });
+    const go = async kind => {
+      const btns = $$('button', form); btns.forEach(x => { x.disabled = true; });
+      const o = { summary: f.summary.value, comments: f.comments.value, preparedBy: f.preparedBy.value.trim(), preparedFor: f.preparedFor.value.trim() };
+      try {
+        const R = await buildKpiReport(b, ym, o);
+        if (kind === 'print') printReport(R); else if (kind === 'word') await downloadDocx(R); else await emailKpiReport(R, f.to.value.trim(), o.preparedBy);
+        if (kind === 'print') await archiveSent({ kind: 'kpiMonthly', building: b, fileDate: ym + '-01', title: \`\${R.name} (printed / PDF)\`, subject: R.name, html: '', attachments: [[\`\${R.name}.docx\`, new Uint8Array(await R.docx().arrayBuffer()), DOCX]], ref: \`facility-\${b}-\${ym}-print\` });
+        if (store.can('edit')) {
+          await store.set('kpiReports', \`\${b}-\${ym}\`, { ...o, building: b, month: ym, updatedAt: new Date().toISOString() });
+          await store.set('kpiReports', cfgId(b), { to: f.to.value.trim(), preparedBy: o.preparedBy, preparedFor: o.preparedFor });
+        }
+        toast(kind === 'print' ? 'Report opened — choose “Save as PDF” in the print window to keep a PDF' : kind === 'word' ? 'Word report downloaded' : 'Email created — open it in Outlook, check it and press Send');
+      } catch (e) { console.error(e); toast(e.message, 'bad'); }
+      btns.forEach(x => { x.disabled = false; });
+    };
+    $$('[data-out]', el).forEach(x => x.addEventListener('click', () => go(x.dataset.out)));
+    form.addEventListener('submit', e => { e.preventDefault(); go('email'); });
+  };
+  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
+  document.body.appendChild(el);
+  store.need(['kpiReports', 'incidents', 'labor']).then(fill, fill);
 }`]);
 
 // ===================== forms/otifemail.js =====================
@@ -1956,7 +2285,7 @@ ATL_SRC.push(['@atl/store.js', 0, `// Data + auth layer. Two backends with the s
 //   • Demo (localStorage) when config.js still says REPLACE_ME, or the URL has ?demo
 // Collections are loaded lazily with live listeners and cached in memory.
 
-import { firebaseConfig } from '@atl/config.js';
+import { firebaseConfig, adminEmails } from '@atl/config.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.0.2/';
 export const demo = firebaseConfig.apiKey === 'REPLACE_ME' || new URLSearchParams(location.search).has('demo');
@@ -1973,6 +2302,7 @@ export const store = {
   demo,
   user: null,      // { uid, email, name }
   role: null,      // 'pending' | 'viewer' | 'supervisor' | 'manager' | 'admin'
+  hidden: [],      // pages an admin has hidden from this user (access.js keys); admins see everything
   settings: null,  // config/settings doc
   rail: null,      // config/rail doc
 
@@ -2009,9 +2339,15 @@ export const store = {
   signInEmail: (e, p) => backend.signInEmail(e, p),
   signUpEmail: (e, p) => backend.signUpEmail(e, p),
   resetPassword: e => backend.resetPassword(e),
+  sendVerification: () => backend.sendVerification(),
+  /** Re-check the signed-in account (e.g. after the user clicked the verification link). */
+  refreshUser: () => backend.refreshUser(),
   signOut: () => backend.signOut(),
   listUsers: () => backend.listUsers(),
   setUserRole: (uid, role) => backend.set('users', uid, { role }, true),
+  setUserHidden: (uid, hidden) => backend.set('users', uid, { hidden }, true),
+  /** Demo mode: everything this browser holds, for moving it into the shared database. */
+  exportAll: () => backend.exportAll?.() ?? null,
 
   can(action) {
     const r = this.role;
@@ -2032,11 +2368,20 @@ export async function boot(onAuth) {
   backend = demo ? demoBackend() : await firebaseBackend();
   backend.onAuth(async user => {
     store.user = user;
-    store.role = user ? await backend.ensureUserDoc(user) : null;
+    const acc = user ? await backend.ensureUserDoc(user) : { role: null, hidden: [] };
+    store.role = acc.role; store.hidden = acc.hidden || [];
     if (user && store.can('view')) await loadConfig();
     onAuth(user);
+    // An admin changing this user's role or hidden pages takes effect right away.
+    if (user) backend.watchDoc('users', user.uid, d => {
+      const hidden = d.hidden || [];
+      if (d.role && (d.role !== store.role || JSON.stringify(hidden) !== JSON.stringify(store.hidden))) { store.role = d.role; store.hidden = hidden; emit('access'); }
+    });
   });
 }
+
+/** Josh Piper and Omar Contreras (config.js ▸ adminEmails) are always admins. */
+export const isAdminEmail = email => adminEmails.map(e => e.toLowerCase()).includes(String(email || '').toLowerCase());
 
 async function loadConfig() {
   let gotS = false, gotR = false;
@@ -2146,24 +2491,38 @@ async function firebaseBackend() {
 
   return {
     onAuth(cb) {
-      A.onAuthStateChanged(auth, u => cb(u ? { uid: u.uid, email: u.email, name: u.displayName || u.email } : null));
+      A.onAuthStateChanged(auth, u => cb(u ? { uid: u.uid, email: u.email, name: u.displayName || u.email, verified: u.emailVerified } : null));
     },
     async ensureUserDoc(u) {
       const ref = F.doc(db, 'users', u.uid);
       const snap = await F.getDoc(ref);
+      // A listed admin email becomes admin once verified (firestore.rules checks the same).
+      const boss = isAdminEmail(u.email) && u.verified;
       if (!snap.exists()) {
-        await F.setDoc(ref, { email: u.email, name: u.name, role: 'pending', createdAt: F.serverTimestamp() });
-        return 'pending';
+        const role = boss ? 'admin' : 'pending';
+        await F.setDoc(ref, { email: u.email, name: u.name, role, createdAt: F.serverTimestamp() });
+        return { role, hidden: [] };
       }
-      return snap.data().role || 'pending';
+      const d = snap.data();
+      if (boss && d.role !== 'admin') { await F.setDoc(ref, { role: 'admin' }, { merge: true }); return { role: 'admin', hidden: [] }; }
+      return { role: d.role || 'pending', hidden: d.hidden || [] };
     },
     signInProvider(kind) {
       const p = kind === 'microsoft' ? new A.OAuthProvider('microsoft.com') : new A.GoogleAuthProvider();
       return A.signInWithPopup(auth, p);
     },
     signInEmail: (e, p) => A.signInWithEmailAndPassword(auth, e, p),
-    signUpEmail: (e, p) => A.createUserWithEmailAndPassword(auth, e, p),
+    async signUpEmail(e, p) {
+      const c = await A.createUserWithEmailAndPassword(auth, e, p);
+      await A.sendEmailVerification(c.user).catch(err => console.warn('Verification email not sent', err));
+    },
     resetPassword: e => A.sendPasswordResetEmail(auth, e),
+    sendVerification: () => A.sendEmailVerification(auth.currentUser),
+    async refreshUser() {
+      await auth.currentUser?.reload();
+      await auth.currentUser?.getIdToken(true); // the rules see email_verified only in a fresh token
+      location.reload();
+    },
     signOut: () => A.signOut(auth),
 
     subscribe(coll, cb) {
@@ -2243,8 +2602,10 @@ function demoBackend() {
 
   return {
     onAuth(cb) { setTimeout(() => cb({ uid: 'demo', email: 'demo@local', name: 'Demo User' }), 0); },
-    async ensureUserDoc() { return 'admin'; },
+    async ensureUserDoc() { return { role: 'admin', hidden: [] }; },
     signInProvider: async () => {}, signInEmail: async () => {}, signUpEmail: async () => {}, resetPassword: async () => {},
+    sendVerification: async () => {}, refreshUser: async () => {},
+    exportAll: () => JSON.parse(JSON.stringify(mem)),
     signOut: async () => { if (confirm('Demo mode: clear all demo data stored in this browser?')) { localStorage.removeItem(KEY); location.reload(); } },
     async subscribe(c, cb) { (subs.get(c) || subs.set(c, []).get(c)).push(cb); cb(list(c)); },
     watchDoc(c, id, cb) { (docSubs.get(id) || docSubs.set(id, []).get(id)).push(cb); cb(coll(c)[id] || {}); },
@@ -3346,7 +3707,7 @@ export default {
 // ===================== views/importer.js =====================
 ATL_SRC.push(['@atl/views/importer.js', 0, `// One-time (or repeatable) import of the "Atlanta Division - Rail OTIF KPI Dashboard.xlsx" workbook.
 // Runs entirely in the browser: the file is parsed with SheetJS and written to the database.
-import { store, withDefaults, withRailDefaults } from '@atl/store.js';
+import { store, withDefaults, withRailDefaults, REF_PREFIX } from '@atl/store.js';
 import { esc, excelDate, excelTime, norm, toast, $ } from '@atl/util.js';
 import { page, section, table } from '@atl/ui.js';
 import { isCustomer } from '@atl/throughput.js';
@@ -3507,6 +3868,33 @@ export async function writeImport(data, onStep = () => {}) {
   onStep('Done');
 }
 
+// ---------- Demo Mode backup → shared database ----------
+// The backup is the demo store as is: { collection: { id: data } }, config docs under "config".
+const BACKUP_SKIP = ['users', 'counters'];
+let backup = null, backupMsg = '';
+async function loadBackup(data, say) {
+  for (const [name, doc] of Object.entries(data.config || {})) await store.saveConfig(name, doc);
+  for (const [coll, docs] of Object.entries(data)) {
+    if (coll === 'config' || BACKUP_SKIP.includes(coll)) continue;
+    const list = Object.entries(docs).map(([id, d]) => ({ ...d, id }));
+    // Batches under ~8 MB (attachments are large) and 400 entries.
+    let chunk = [], size = 0, done = 0;
+    const flush = async () => { if (!chunk.length) return; await store.writeMany(coll, chunk); done += chunk.length; say(\`\${coll}: \${done} / \${list.length}\`); chunk = []; size = 0; };
+    for (const d of list) {
+      const n = JSON.stringify(d).length;
+      if (chunk.length && (size + n > 8e6 || chunk.length >= 400)) await flush();
+      chunk.push(d); size += n;
+    }
+    await flush();
+    // Numbered entries (OTIF-0042 …) carry on after the highest number.
+    const prefix = REF_PREFIX[coll];
+    if (prefix) {
+      const top = Math.max(0, ...list.map(d => (d.id.startsWith(prefix + '-') ? parseInt(d.id.slice(prefix.length + 1), 10) || 0 : 0)));
+      await store.set('counters', coll, { next: top + 1 });
+    }
+  }
+}
+
 // Test hook: window.atlImport(arrayBuffer)
 window.atlImport = async buf => { const d = await parseWorkbook(buf); await writeImport(d); return Object.fromEntries(COLLS.map(c => [c, d[c].length])); };
 
@@ -3519,8 +3907,13 @@ export default {
       \`<p class="warnline">⚠ Importing <b>replaces</b> all current data in every collection listed above, and the settings.</p>
        <p class="muted">Loads posted on Weekly Entry (from the Billing Activity files) are kept: the workbook has no load counts, so each week keeps the loads already in the app, and Monthly Inputs add them up again.</p>
        <button class="btn primary" data-go \${busy ? 'disabled' : ''}>\${busy ? 'Importing…' : 'Replace everything with this workbook'}</button> <span class="muted">\${esc(progress)}</span>\`) : '';
+    const bk = backup ? \`<p>Backup from \${esc(backup.exported ? new Date(backup.exported).toLocaleString() : 'demo mode')}: \${esc(Object.entries(backup.data).filter(([c]) => !BACKUP_SKIP.includes(c)).map(([c, d]) => \`\${c} \${Object.keys(d).length}\`).join(' · '))}</p>
+      <p class="warnline">⚠ Loading it writes every entry, file and setting from the backup into the shared database (same IDs replace what is there).</p>
+      <button class="btn primary" data-backup-go \${busy ? 'disabled' : ''}>\${busy ? 'Loading…' : 'Load this backup into the shared database'}</button> <span class="muted" data-backup-msg>\${esc(backupMsg)}</span>\` : \`<span class="muted">\${esc(backupMsg)}</span>\`;
     return page('Import from Excel', 'Load the Rail OTIF KPI Dashboard workbook (.xlsx). The file is read in your browser — nothing is uploaded anywhere except the rows written to the database.') +
-      section('1 · Choose the workbook', \`<input type="file" accept=".xlsx,.xlsm" data-file> <span class="muted">\${esc(progress && !parsed ? progress : '')}</span>\`) + preview;
+      section('1 · Choose the workbook', \`<input type="file" accept=".xlsx,.xlsm" data-file> <span class="muted">\${esc(progress && !parsed ? progress : '')}</span>\`) + preview +
+      (store.demo ? '' : section('Load a backup (data from Demo Mode)', \`<p class="muted">The JSON backup made in Users &amp; Settings while the app ran in Demo Mode (data kept in one browser). Use it once, to move that data into the shared database.</p>
+        <input type="file" accept=".json,application/json" data-backup> \${bk}\`));
   },
   after(root, p, rerender) {
     $('[data-file]', root)?.addEventListener('change', async e => {
@@ -3528,6 +3921,23 @@ export default {
       progress = 'Reading workbook…'; parsed = null; rerender();
       try { parsed = await parseWorkbook(await f.arrayBuffer()); progress = ''; } catch (err) { console.error(err); progress = 'Could not read the file: ' + err.message; }
       rerender();
+    });
+    $('[data-backup]', root)?.addEventListener('change', async e => {
+      const f = e.target.files[0]; if (!f) return;
+      try {
+        const j = JSON.parse(await f.text());
+        if (j.app !== 'atl-ops' || !j.data) throw new Error('not an Atlanta Ops backup');
+        backup = j; backupMsg = '';
+      } catch (err) { backup = null; backupMsg = 'Could not read the backup: ' + err.message; }
+      rerender();
+    });
+    $('[data-backup-go]', root)?.addEventListener('click', async () => {
+      if (!confirm('Load every entry, file and setting from this backup into the shared database?')) return;
+      busy = true; rerender();
+      const say = m => { backupMsg = m; const el = $('[data-backup-msg]'); if (el) el.textContent = m; };
+      try { await loadBackup(backup.data, say); toast('Backup loaded'); backup = null; say('Done'); }
+      catch (err) { console.error(err); toast(err.message, 'bad'); say('Failed: ' + err.message); }
+      busy = false; rerender();
     });
     $('[data-go]', root)?.addEventListener('click', async () => {
       if (!confirm('Replace ALL current data with the contents of this workbook?')) return;
@@ -3996,235 +4406,6 @@ export default {
   },
 };`]);
 
-// ===================== views/safety.js =====================
-ATL_SRC.push(['@atl/views/safety.js', 0, `// Safety Incidents & OSHA recordkeeping (#/safety): searchable incident history, the OSHA 300 Log and 300A Summary,
-// TRIR / DART rates from the Labor log's hours, and OTIF Log Recordable Incidents missing a required report.
-import { store } from '@atl/store.js';
-import { esc, fmtNum, downloadXLSX, toast, $, $$, todayISO, isISO, yearOf } from '@atl/util.js';
-import { kpi, chart, chartBox, table, badge } from '@atl/ui.js';
-import { openIncidentForm, fromOtif, otifWaiting, classify, isRec, isDart, typesText, otherText, TYPES, CATEGORIES, STATUSES, OSHA_TYPES, FORM_NO } from '@atl/forms/incident.js';
-
-const st = { q: '', year: '', facility: '', status: '', type: '', rec: false, tab: 'history', limit: 200 };
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const us = iso => (isISO(iso) ? \`\${+iso.slice(5, 7)}/\${+iso.slice(8, 10)}/\${iso.slice(0, 4)}\` : '');
-const cap = n => Math.min(180, Math.max(0, Math.round(+n || 0)));
-const STATUS_TONE = { Open: 'bad', 'Under Investigation': 'warn', 'Actions Pending': 'warn', Closed: 'good' };
-const TYPE_TONE = { 'Near Miss': 'warn', 'Unsafe Condition': 'info', 'Unsafe Act': 'info', 'Recordable Incident': 'bad' };
-const TYPE_COL = { 'Near Miss': '#c0904d', 'Unsafe Condition': '#4d6f99', 'Unsafe Act': '#222b36', 'Recordable Incident': '#c0392b' };
-const CLASS_SHORT = { Death: 'Death', 'Days away from work': 'Days away', 'Job transfer or restriction': 'Restricted', 'Other recordable case': 'Other recordable' };
-const caseNo = r => r.oshaCaseNo || r.id;
-
-const scoped = (year, fac) => store.rows('incidents').filter(r => (!year || String(yearOf(r.date)) === String(year)) && (!fac || String(r.facility) === fac));
-/** Hours worked (regular + OT) and the average number of people working per week, from the Labor log. */
-function hoursFor(year, fac) {
-  const rows = store.rows('labor').filter(r => String(yearOf(r.weekEnding)) === String(year) && (!fac || String(r.building) === fac));
-  let hours = 0; const weeks = new Map();
-  for (const r of rows) { const h = (+r.reg || 0) + (+r.ot || 0); hours += h; if (h > 0) (weeks.get(r.weekEnding) || weeks.set(r.weekEnding, new Set()).get(r.weekEnding)).add(r.employee); }
-  const avg = weeks.size ? [...weeks.values()].reduce((a, s) => a + s.size, 0) / weeks.size : 0;
-  return { hours, avg: Math.round(avg), weeks: weeks.size };
-}
-const rate = (n, hours) => (hours ? (n * 200000) / hours : null);
-/** OSHA 300 totals for a list of recordable cases. */
-function totals(rec) {
-  const c = k => rec.filter(r => classify(r) === k).length;
-  return { G: c('Death'), H: c('Days away from work'), I: c('Job transfer or restriction'), J: c('Other recordable case'),
-    K: rec.reduce((a, r) => a + cap(r.daysAway), 0), L: rec.reduce((a, r) => a + cap(r.daysRestricted), 0),
-    M: OSHA_TYPES.map(t => rec.filter(r => (r.oshaType || 'Injury') === t).length) };
-}
-function filtered() {
-  let rows = scoped(st.year, st.facility);
-  if (st.status) rows = rows.filter(r => (r.status || 'Open') === st.status);
-  if (st.type) rows = rows.filter(r => (r.types || []).includes(st.type));
-  if (st.rec) rows = rows.filter(isRec);
-  if (st.q) { const q = st.q.toLowerCase(); rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q)); }
-  return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.time || '').localeCompare(String(a.time || '')) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }));
-}
-const frame = (title, id, h, aria) => \`<div class="xl-chart"><h4>\${title}</h4>\${chartBox(id, h, aria)}</div>\`;
-const where = r => [r.facility, r.location || (r.area === 'Other' ? r.areaOther : r.area)].filter(Boolean).join(' – ');
-const describe = r => [r.injuryNature, r.bodyPart, r.objectSubstance && \`struck / harmed by \${r.objectSubstance}\`].filter(Boolean).join('; ') || String(r.whatHappened || '').slice(0, 120);
-const estName = () => (st.facility ? \`Piper Warehouse — Building \${st.facility}\` : 'Piper Warehouse — Atlanta Division (6021 & 6049)');
-
-function historyTab(rows) {
-  const cols = [
-    { label: 'Report #', key: 'id', cls: 'mono' },
-    { label: 'Date', key: 'date', type: 'date', cls: 't-date' },
-    { label: 'Bldg', key: 'facility' },
-    { label: 'Employee', key: 'employee' },
-    { label: 'Type', html: true, get: r => (r.types || []).map(t => badge(t, TYPE_TONE[t])).join(' ') },
-    { label: 'Category', get: r => otherText(r.categories, r.categoryOther), cls: 'clip' },
-    { label: 'What happened', key: 'whatHappened', cls: 'clip t-textarea' },
-    { label: 'Risk', get: r => String(r.risk || '').split(' — ')[0] },
-    { label: 'OSHA', html: true, get: r => (isRec(r) ? badge(CLASS_SHORT[classify(r)], 'bad') : r.recordable === 'TBD' ? badge('To decide', 'warn') : r.recordable === 'No' ? '<span class="muted small">Not recordable</span>' : '') },
-    { label: 'Status', html: true, get: r => badge(r.status || 'Open', STATUS_TONE[r.status || 'Open']) },
-    { label: 'Files', get: r => r.files || '', type: 'number' },
-    { label: 'OTIF', key: 'otifId', cls: 'mono' },
-  ];
-  const filters = st.q || st.status || st.type || st.rec;
-  return \`<div class="toolbar">
-      <input type="search" class="search" placeholder="Search reports — name, location, equipment, words…" value="\${esc(st.q)}" data-q aria-label="Search safety incident reports">
-      <select data-status aria-label="Status"><option value="">All statuses</option>\${STATUSES.map(s => \`<option\${s === st.status ? ' selected' : ''}>\${s}</option>\`).join('')}</select>
-      <select data-type aria-label="Incident type"><option value="">All types</option>\${TYPES.map(s => \`<option\${s === st.type ? ' selected' : ''}>\${s}</option>\`).join('')}</select>
-      <label class="inline small"><input type="checkbox" data-rec \${st.rec ? 'checked' : ''}> OSHA recordable only</label>
-      \${filters ? '<button type="button" class="btn ghost small" data-clear>Clear filters ✕</button>' : ''}
-      <span class="count" aria-live="polite">\${rows.length} report\${rows.length === 1 ? '' : 's'}</span><span class="grow"></span>
-      <button class="btn ghost" data-xlsx title="Download the reports shown as an Excel workbook">⬇ Export to Excel</button>
-      \${store.can('edit') ? '<button class="btn primary" data-new>+ New report</button>' : ''}</div>
-    <div class="log-scroll">\${table(cols, rows, { max: st.limit, rowAttr: r => \`data-id="\${esc(r.id)}" class="clickable" tabindex="0"\`, empty: filters ? 'No reports match these filters.' : \`No safety incident reports for \${esc(st.year)} yet.\` })}</div>
-    \${rows.length > st.limit ? \`<div class="more"><button class="btn ghost" data-more>Show more</button></div>\` : ''}\`;
-}
-
-function log300Tab(rec) {
-  const T = totals(rec), x = b => (b ? '✓' : '');
-  return \`<div class="toolbar"><span class="muted small"><b>OSHA Form 300</b> — Log of Work-Related Injuries and Illnesses · \${esc(st.year)} · \${esc(estName())}\${st.facility ? '' : ' <span class="badge warn">OSHA needs one log per establishment — pick a building</span>'}</span>
-      <span class="grow"></span><button class="btn ghost" data-x300>⬇ Export to Excel</button></div>
-    <div class="table-wrap"><table class="grid sf-300"><thead>
-      <tr class="grp"><th colspan="6">Identify the person &amp; describe the case</th><th colspan="4">Classify the case (most serious outcome)</th><th colspan="2">Number of days</th><th colspan="6">Injury or illness type</th></tr>
-      <tr><th>(A) Case no.</th><th>(B) Employee name</th><th>(C) Job title</th><th>(D) Date of injury / onset</th><th>(E) Where the event occurred</th><th>(F) Injury / illness, body part, object / substance</th>
-        <th>(G) Death</th><th>(H) Days away</th><th>(I) Transfer / restriction</th><th>(J) Other recordable</th><th>(K) Away from work</th><th>(L) Transfer / restriction</th>
-        <th>(M1) Injury</th><th>(M2) Skin disorder</th><th>(M3) Respiratory</th><th>(M4) Poisoning</th><th>(M5) Hearing loss</th><th>(M6) All other illnesses</th></tr></thead>
-      <tbody>\${rec.map(r => { const c = classify(r), t = r.oshaType || 'Injury'; return \`<tr data-id="\${esc(r.id)}" class="clickable" tabindex="0"><td class="mono">\${esc(caseNo(r))}</td><td>\${r.privacyCase === 'Y' ? '<i>Privacy Case</i>' : esc(r.employee)}</td><td>\${esc(r.jobTitle || '')}</td><td>\${esc(us(r.date))}</td><td>\${esc(where(r))}</td><td class="clip"><div class="clip-in" title="\${esc(describe(r))}">\${esc(describe(r))}</div></td>
-        <td class="c">\${x(c === 'Death')}</td><td class="c">\${x(c === 'Days away from work')}</td><td class="c">\${x(c === 'Job transfer or restriction')}</td><td class="c">\${x(c === 'Other recordable case')}</td>
-        <td class="num">\${cap(r.daysAway) || ''}</td><td class="num">\${cap(r.daysRestricted) || ''}</td>\${OSHA_TYPES.map(o => \`<td class="c">\${x(o === t)}</td>\`).join('')}</tr>\`; }).join('') || \`<tr><td colspan="18" class="empty">No OSHA recordable cases for \${esc(st.year)}\${st.facility ? ' in ' + esc(st.facility) : ''}.</td></tr>\`}</tbody>
-      <tfoot><tr><td colspan="6"><b>Page totals</b></td><td class="c">\${T.G}</td><td class="c">\${T.H}</td><td class="c">\${T.I}</td><td class="c">\${T.J}</td><td class="num">\${T.K}</td><td class="num">\${T.L}</td>\${T.M.map(n => \`<td class="c">\${n}</td>\`).join('')}</tr></tfoot></table></div>
-    <p class="xl-foot">Only cases marked “Recordable on the OSHA 300 Log = Yes” are listed. Classification is the most serious outcome (death › days away › job transfer / restriction › other). Days are capped at 180. Privacy cases show “Privacy Case” instead of the name — keep a separate confidential list of names. Click a row to open its report.</p>\`;
-}
-
-function summary300ATab(rec, h) {
-  const T = totals(rec), trir = rate(rec.length, h.hours), dart = rate(rec.filter(isDart).length, h.hours);
-  const box = (title, items) => \`<div class="sf-a-card"><h4>\${title}</h4>\${items.map(([k, v, code]) => \`<div class="sf-a-row"><span>\${code ? \`<b>(\${code})</b> \` : ''}\${k}</span><b>\${v}</b></div>\`).join('')}</div>\`;
-  return \`<div class="toolbar"><span class="muted small"><b>OSHA Form 300A</b> — Summary of Work-Related Injuries and Illnesses · \${esc(st.year)} · \${esc(estName())}\${st.facility ? '' : ' <span class="badge warn">Post one 300A per establishment — pick a building</span>'}</span>
-      <span class="grow"></span><button class="btn ghost" data-x300a>⬇ Export to Excel</button><button class="btn primary" data-print300a>🖨 Print 300A for posting</button></div>
-    <div class="sf-a-grid">
-      \${box('Number of cases', [['Total deaths', T.G, 'G'], ['Cases with days away from work', T.H, 'H'], ['Cases with job transfer or restriction', T.I, 'I'], ['Other recordable cases', T.J, 'J']])}
-      \${box('Number of days', [['Days away from work', fmtNum(T.K), 'K'], ['Days of job transfer or restriction', fmtNum(T.L), 'L']])}
-      \${box('Injury and illness types', ['Injuries', 'Skin disorders', 'Respiratory conditions', 'Poisonings', 'Hearing loss', 'All other illnesses'].map((k, i) => [k, T.M[i], 'M' + (i + 1)]))}
-      \${box('Establishment information', [['Establishment', esc(estName())], ['Industry', 'Warehousing and storage (NAICS 493)'], ['Annual average number of employees', h.avg ? fmtNum(h.avg) : '—'], ['Total hours worked by all employees', h.hours ? fmtNum(h.hours) : '—'], ['TRIR (recordables per 100 full-time workers)', trir != null ? trir.toFixed(2) : '—'], ['DART rate', dart != null ? dart.toFixed(2) : '—']])}
-    </div>
-    <p class="xl-foot">Hours worked and the average number of employees come from the Labor log (regular + OT hours, people with hours each week) for \${esc(st.year)}\${st.facility ? ' in building ' + esc(st.facility) : ''}\${h.weeks ? \` — \${h.weeks} weeks entered\` : ' — no Labor hours entered yet'}. Check them against payroll before certifying. TRIR = recordable cases × 200,000 ÷ hours; DART = cases with days away, restriction or transfer × 200,000 ÷ hours.</p>
-    <details class="sf-rules" open><summary>OSHA recordkeeping reminders</summary><ul>
-      <li>Enter each recordable case on the OSHA 300 Log and complete a 301 (this report) <b>within 7 calendar days</b> of learning about it.</li>
-      <li>Report directly to OSHA: a work-related <b>fatality within 8 hours</b>; an <b>in-patient hospitalization, amputation or loss of an eye within 24 hours</b> (1-800-321-OSHA or osha.gov).</li>
-      <li>A company executive certifies the 300A; <b>post it from February 1 to April 30</b> where notices to employees are posted.</li>
-      <li>Establishments that must submit electronically (OSHA ITA) send the 300A data <b>by March 2</b> — warehousing establishments with 20 or more employees are generally covered; confirm on osha.gov.</li>
-      <li>Keep the 300 Log, 300A and 301 reports for <b>5 years</b> after the year they cover.</li></ul></details>\`;
-}
-
-function print300A(rec, h) {
-  const T = totals(rec), w = window.open('', '_blank');
-  if (!w) return toast('The browser blocked the print window — allow pop-ups for this page', 'bad');
-  const r = (k, v) => \`<tr><td>\${k}</td><td class="n">\${v}</td></tr>\`;
-  w.document.write(\`<!doctype html><html><head><meta charset="utf-8"><title>OSHA 300A \${esc(st.year)} — \${esc(estName())}</title><style>
-    body{font:13px Calibri,Arial,sans-serif;color:#1c232d;margin:28px}h1{font-size:20px;margin:0}h2{font-size:14px;margin:18px 0 6px;border-bottom:3px solid #c0392b;padding-bottom:3px}
-    table{border-collapse:collapse;width:100%}td{border:1px solid #c8ced8;padding:5px 8px}.n{text-align:right;font-weight:700;width:120px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-    .sig td{height:34px;vertical-align:bottom}.muted{color:#5b6478;font-size:11px}</style></head><body>
-    <h1>OSHA Form 300A — Summary of Work-Related Injuries and Illnesses</h1><div class="muted">Year \${esc(st.year)} · \${esc(estName())} · Prepared \${esc(us(todayISO()))} from the Piper Warehouse Operations Dashboard. Use OSHA's official form for the posted copy if required.</div>
-    <div class="cols"><div><h2>Number of cases</h2><table>\${r('(G) Total number of deaths', T.G)}\${r('(H) Cases with days away from work', T.H)}\${r('(I) Cases with job transfer or restriction', T.I)}\${r('(J) Other recordable cases', T.J)}</table>
-    <h2>Number of days</h2><table>\${r('(K) Days away from work', T.K)}\${r('(L) Days of job transfer or restriction', T.L)}</table>
-    <h2>Injury and illness types</h2><table>\${r('(M1) Injuries', T.M[0])}\${r('(M2) Skin disorders', T.M[1])}\${r('(M3) Respiratory conditions', T.M[2])}\${r('(M4) Poisonings', T.M[3])}\${r('(M5) Hearing loss', T.M[4])}\${r('(M6) All other illnesses', T.M[5])}</table></div>
-    <div><h2>Establishment information</h2><table>\${r('Establishment name', esc(estName()))}\${r('Industry', 'Warehousing and storage (NAICS 493)')}\${r('Annual average number of employees', h.avg || '')}\${r('Total hours worked by all employees last year', h.hours ? Math.round(h.hours).toLocaleString() : '')}</table>
-    <h2>Certification</h2><p class="muted">I certify that I have examined this document and that to the best of my knowledge the entries are true, accurate, and complete.</p>
-    <table class="sig"><tr><td>Company executive</td><td></td></tr><tr><td>Title</td><td></td></tr><tr><td>Phone</td><td></td></tr><tr><td>Date</td><td></td></tr></table></div></div>
-    <p class="muted">Post from February 1 to April 30. Knowingly falsifying this document may result in a fine.</p></body></html>\`);
-  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
-}
-
-export default {
-  needs: () => ['incidents', 'otif', 'labor', 'employees'],
-  render(p) {
-    const s = store.settings;
-    if (!st.year) st.year = String(s.reportingYear || new Date().getFullYear());
-    if (p.query.tab && ['history', 'osha300', 'osha300a'].includes(p.query.tab)) st.tab = p.query.tab;
-    const years = [...new Set([String(s.reportingYear), String(new Date().getFullYear()), st.year, ...store.rows('incidents').map(r => String(yearOf(r.date) || '')).filter(Boolean)])].sort().reverse();
-    const yr = scoped(st.year, st.facility), rec = yr.filter(isRec).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
-    const h = hoursFor(st.year, st.facility), trir = rate(rec.length, h.hours), dartN = rec.filter(isDart).length, dart = rate(dartN, h.hours);
-    const T = totals(rec), facOk = r => !st.facility || String(r.facility) === st.facility;
-    const lastRec = store.rows('incidents').filter(r => isRec(r) && facOk(r)).map(r => r.date).filter(isISO).sort().at(-1);
-    const since = lastRec ? Math.max(0, Math.round((Date.parse(todayISO()) - Date.parse(lastRec)) / 864e5)) : null;
-    const open = store.rows('incidents').filter(r => (r.status || 'Open') !== 'Closed' && facOk(r));
-    const wait = otifWaiting().filter(facOk);
-    const pastDue = open.filter(r => (r.correctives || []).some(c => c.action && c.done !== 'Done' && c.due && c.due < todayISO())).length;
-    const n = t => yr.filter(r => (r.types || []).includes(t)).length;
-    const tiles = [
-      kpi('Reports · ' + st.year, fmtNum(yr.length), \`\${n('Near Miss')} near misses · \${n('Unsafe Condition') + n('Unsafe Act')} unsafe acts / conditions\`),
-      kpi('OSHA recordable cases', fmtNum(rec.length), trir != null ? \`TRIR \${trir.toFixed(2)} per 100 full-time workers\` : 'TRIR needs Labor log hours', rec.length ? 'bad' : 'good'),
-      kpi('DART cases', fmtNum(dartN), dart != null ? \`DART rate \${dart.toFixed(2)}\` : 'days away, restricted or transferred', dartN ? 'bad' : ''),
-      kpi('Days away · restricted', \`\${fmtNum(T.K)} <small>/ \${fmtNum(T.L)}</small>\`, 'calendar days, capped at 180 per case'),
-      kpi('Open reports', fmtNum(open.length), \`\${pastDue ? \`\${pastDue} with overdue actions · \` : ''}\${wait.length} missing a required report\`, open.length || wait.length ? 'warn' : 'good'),
-      kpi('Days since last recordable', since == null ? '—' : fmtNum(since), lastRec ? \`last case \${us(lastRec)}\` : 'none recorded', since == null || since >= 90 ? 'good' : ''),
-    ];
-    const waitCard = wait.length ? \`<section class="card sf-wait" aria-labelledby="sf-wait-h"><div class="card-head"><h2 id="sf-wait-h">Missing a required report — \${wait.length} Recordable Incident\${wait.length === 1 ? '' : 's'} on the OTIF Log</h2><span class="muted small">The Safety Incident / Near Miss Report (\${FORM_NO}) is required for every recordable incident. Fill it out now; it also goes on the OSHA 300 Log within 7 days.</span></div>
-      \${wait.map(o => \`<div class="sf-wait-row"><span class="mono"><a href="#/log/otif?ids=\${encodeURIComponent(o.id)}">\${esc(o.id)}</a></span><span>\${esc(us(o.date))}</span><span>\${esc(o.facility || '')}</span><span class="grow clip-in" title="\${esc(o.description || '')}">\${esc(o.responsible || '')}\${o.description ? ' — ' + esc(o.description) : ''}</span>
-        \${store.can('edit') ? \`<button type="button" class="btn primary small" data-fill="\${esc(o.id)}">Fill out the form</button>\` : ''}</div>\`).join('')}</section>\` : '';
-    const tab = (k, l) => \`<button type="button" role="tab" aria-selected="\${st.tab === k}" class="\${st.tab === k ? 'on' : ''}" data-tab="\${k}">\${l}</button>\`;
-    const body = st.tab === 'osha300' ? log300Tab(rec) : st.tab === 'osha300a' ? summary300ATab(rec, h) : historyTab(filtered());
-    return \`<div class="log-xl sf-xl">
-      <div class="xl-dash-head log-head">
-        <div class="xl-banner"><h1>PIPER WAREHOUSE&nbsp; | &nbsp;Safety Incidents &amp; OSHA Recordkeeping</h1><p>Every safety incident and near miss on the Safety Incident / Near Miss Report (\${FORM_NO}), with OSHA 301 details, the OSHA 300 Log and the 300A Summary. A Recordable Incident on the OTIF Log asks for this report. Click a row to open, update or email a report.</p></div>
-        <div class="xl-meta"><b>Year:</b><select data-year aria-label="Year">\${years.map(y => \`<option\${y === st.year ? ' selected' : ''}>\${y}</option>\`).join('')}</select>
-          <b>Building:</b><select data-fac aria-label="Building"><option value="">Both buildings</option>\${(s.lists.facilities || []).map(f => \`<option\${f === st.facility ? ' selected' : ''}>\${esc(f)}</option>\`).join('')}</select>
-          <span class="sp"></span>\${store.can('edit') ? '<button type="button" class="btn primary" data-new>+ New incident report</button>' : ''}</div>
-        <div class="log-insights"><div class="xl-tiles q" style="grid-template-columns:repeat(\${tiles.length}, minmax(0, 1fr))">\${tiles.join('')}</div>
-          <div class="log-chart split">\${frame(\`Reports by month &amp; type — \${esc(st.year)}\`, 'ch-sf', 250, 'Safety reports per month stacked by incident type')}\${frame('Reports by category', 'ch-sf-b', 250, 'Safety reports per category, most first')}</div></div>
-      </div>
-      \${waitCard}
-      <div class="sf-tabs" role="tablist" aria-label="Safety views">\${tab('history', 'Incident history')}\${tab('osha300', \`OSHA 300 Log <span class="sf-n">\${rec.length}</span>\`)}\${tab('osha300a', 'OSHA 300A Summary')}</div>
-      <section class="card log-card sf-card">\${body}</section></div>\`;
-  },
-  after(root, p, rerender) {
-    const yr = scoped(st.year, st.facility), months = MON.map((m, i) => \`\${st.year}-\${String(i + 1).padStart(2, '0')}\`);
-    chart('ch-sf', { type: 'bar', data: { labels: MON, datasets: TYPES.map(t => ({ label: t, data: months.map(m => yr.filter(r => String(r.date).startsWith(m) && (r.types || []).includes(t)).length), backgroundColor: TYPE_COL[t], stack: 's', borderRadius: 1 })) },
-      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14 } }, tooltip: { filter: t => t.parsed.y > 0 } },
-        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Reports' } } } } });
-    const cats = CATEGORIES.map(c => [c, yr.filter(r => (r.categories || []).includes(c)).length]).filter(e => e[1]).sort((a, b) => b[1] - a[1]);
-    chart('ch-sf-b', { type: 'bar', data: { labels: cats.map(e => e[0]), datasets: [{ label: 'Reports', data: cats.map(e => e[1]), backgroundColor: '#c0392b', borderRadius: 3, maxBarThickness: 22 }] },
-      options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#eef0f4' } }, y: { grid: { display: false } } } } });
-
-    const saved = () => rerender();
-    const openById = id => { const r = store.rows('incidents').find(x => x.id === id); if (r) openIncidentForm(r, {}, { onSaved: saved }); };
-    $('[data-year]', root)?.addEventListener('change', e => { st.year = e.target.value; rerender(); });
-    $('[data-fac]', root)?.addEventListener('change', e => { st.facility = e.target.value; rerender(); });
-    $$('[data-new]', root).forEach(b => b.addEventListener('click', () => openIncidentForm(null, {}, { onSaved: saved })));
-    $$('[data-tab]', root).forEach(b => b.addEventListener('click', () => { st.tab = b.dataset.tab; if (location.hash.includes('tab=')) location.hash = '#/safety'; else rerender(); }));
-    $$('[data-fill]', root).forEach(b => b.addEventListener('click', () => { const o = store.rows('otif').find(r => r.id === b.dataset.fill); if (o) openIncidentForm(null, fromOtif(o), { onSaved: saved, required: true }); }));
-    const q = $('[data-q]', root); let t;
-    q?.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { st.q = q.value; st.limit = 200; rerender(); setTimeout(() => { const n = $('#main [data-q]'); n?.focus(); n?.setSelectionRange(n.value.length, n.value.length); }); }, 250); });
-    $('[data-status]', root)?.addEventListener('change', e => { st.status = e.target.value; rerender(); });
-    $('[data-type]', root)?.addEventListener('change', e => { st.type = e.target.value; rerender(); });
-    $('[data-rec]', root)?.addEventListener('change', e => { st.rec = e.target.checked; rerender(); });
-    $('[data-clear]', root)?.addEventListener('click', () => { Object.assign(st, { q: '', status: '', type: '', rec: false }); rerender(); });
-    $('[data-more]', root)?.addEventListener('click', () => { st.limit += 200; rerender(); });
-    for (const tb of $$('.sf-card tbody', root)) {
-      tb.addEventListener('click', e => { const tr = e.target.closest('tr[data-id]'); if (tr && !e.target.closest('a')) openById(tr.dataset.id); });
-      tb.addEventListener('keydown', e => { const tr = e.target.closest('tr[data-id]'); if (tr && e.key === 'Enter') openById(tr.dataset.id); });
-    }
-    const rec = yr.filter(isRec).sort((a, b) => String(a.date).localeCompare(String(b.date))), stamp = todayISO();
-    $('[data-xlsx]', root)?.addEventListener('click', () => {
-      const rows = filtered();
-      downloadXLSX(\`Safety Incidents \${stamp}.xlsx\`, 'Safety Incidents', ['Report #', 'Status', 'Date', 'Time', 'Facility', 'Area', 'Exact location', 'Reported by', 'Employee', 'Job title', 'Incident type', 'Category', 'What happened', 'What could have happened', 'Equipment', 'MHE / Trailer / Railcar #', 'Injured', 'Body part', 'Nature of injury', 'OSHA type', 'Treatment', 'OSHA recordable', 'Classification', 'Days away', 'Days restricted', 'Immediate actions', 'Contributing factors', 'Risk level', 'Witnesses', 'Corrective actions', 'Supervisor', 'Date closed', 'OTIF ref', 'Files'],
-        rows.map(r => [r.id, r.status || 'Open', r.date, r.time, r.facility, r.area === 'Other' ? r.areaOther || 'Other' : r.area, r.location, r.reportedBy, r.employee, r.jobTitle, typesText(r), otherText(r.categories, r.categoryOther), r.whatHappened, r.couldHappen,
-          (r.equipment || []).join(', '), r.equipmentNo, r.injured === 'Y' ? 'Yes' : r.injured === 'N' ? 'No' : '', r.bodyPart, r.injuryNature, r.oshaType, r.treatment, r.recordable === 'TBD' ? 'Not yet determined' : r.recordable, classify(r),
-          r.daysAway === '' || r.daysAway == null ? '' : cap(r.daysAway), r.daysRestricted === '' || r.daysRestricted == null ? '' : cap(r.daysRestricted), otherText(r.actions, r.actionsOther), otherText(r.factors, r.factorOther), r.risk,
-          (r.witnesses || []).map(w => w.name).filter(Boolean).join(', '), (r.correctives || []).map(c => \`\${c.action}\${c.responsible ? \` (\${c.responsible})\` : ''}\${c.due ? \` due \${c.due}\` : ''} – \${c.done || 'Open'}\`).join('\\n'), r.supName, r.dateClosed, r.otifId, r.files || 0]));
-      toast(\`Exported \${rows.length} report\${rows.length === 1 ? '' : 's'} to Excel\`);
-    });
-    $('[data-x300]', root)?.addEventListener('click', () => {
-      downloadXLSX(\`OSHA 300 Log \${st.year}\${st.facility ? ' ' + st.facility : ''}.xlsx\`, \`OSHA 300 \${st.year}\`, ['(A) Case no.', '(B) Employee name', '(C) Job title', '(D) Date of injury', '(E) Where the event occurred', '(F) Describe injury or illness', '(G) Death', '(H) Days away', '(I) Job transfer / restriction', '(J) Other recordable', '(K) Days away from work', '(L) Days of transfer / restriction', '(M1) Injury', '(M2) Skin disorder', '(M3) Respiratory condition', '(M4) Poisoning', '(M5) Hearing loss', '(M6) All other illnesses'],
-        rec.map(r => { const c = classify(r), ty = r.oshaType || 'Injury', x = b => (b ? 'X' : ''); return [caseNo(r), r.privacyCase === 'Y' ? 'Privacy Case' : r.employee, r.jobTitle, r.date, where(r), describe(r), x(c === 'Death'), x(c === 'Days away from work'), x(c === 'Job transfer or restriction'), x(c === 'Other recordable case'), cap(r.daysAway), cap(r.daysRestricted), ...OSHA_TYPES.map(o => x(o === ty))]; }));
-    });
-    $('[data-x300a]', root)?.addEventListener('click', () => {
-      const T = totals(rec), h = hoursFor(st.year, st.facility);
-      downloadXLSX(\`OSHA 300A \${st.year}\${st.facility ? ' ' + st.facility : ''}.xlsx\`, \`OSHA 300A \${st.year}\`, ['Item', 'Value'], [['Establishment', estName()], ['Year', +st.year], ['(G) Total deaths', T.G], ['(H) Cases with days away', T.H], ['(I) Cases with job transfer or restriction', T.I], ['(J) Other recordable cases', T.J], ['(K) Days away from work', T.K], ['(L) Days of job transfer or restriction', T.L],
-        ...OSHA_TYPES.map((t, i) => [\`(M\${i + 1}) \${t}\`, T.M[i]]), ['Annual average number of employees', h.avg], ['Total hours worked', Math.round(h.hours)]]);
-    });
-    $('[data-print300a]', root)?.addEventListener('click', () => print300A(rec, hoursFor(st.year, st.facility)));
-    // Links: #/safety?open=INC-0001 (global search), ?new=1, ?otif=OTIF-0042 (fill out the report for that entry).
-    const clean = () => history.replaceState(null, '', '#/safety');
-    if (p.query.open) { clean(); openById(p.query.open); }
-    else if (p.query.otif && store.can('edit')) { clean(); const o = store.rows('otif').find(r => r.id === p.query.otif); if (o) openIncidentForm(null, fromOtif(o), { onSaved: saved, required: true }); }
-    else if (p.query.new && store.can('edit')) { clean(); openIncidentForm(null, {}, { onSaved: saved }); }
-  },
-};`]);
-
 // ===================== views/scorecards.js =====================
 ATL_SRC.push(['@atl/views/scorecards.js', 0, `// Damage Scorecard + Attendance Scorecard.
 import { store } from '@atl/store.js';
@@ -4459,8 +4640,9 @@ function attendanceSheet(y) {
 
 // ===================== views/settings.js =====================
 ATL_SRC.push(['@atl/views/settings.js', 0, `// Settings & Lists + Rail Settings + Users & roles (admin only).
-import { store } from '@atl/store.js';
-import { esc, toast, $, $$ } from '@atl/util.js';
+import { store, isAdminEmail } from '@atl/store.js';
+import { esc, toast, downloadBlob, todayISO, $, $$ } from '@atl/util.js';
+import { PAGES } from '@atl/access.js';
 import { page, section } from '@atl/ui.js';
 import { UNIT_SETS } from '@atl/throughput.js';
 
@@ -4531,9 +4713,12 @@ export default {
       \${num('scCoach90', 'Attendance Scorecard — “Coaching now” at this many occurrences in 90 days', s.scCoach90, 'Display only.', '1')}
     </div>\`;
     const lists = \`<div class="lists">\${Object.entries(LIST_LABELS).map(([k, l]) => \`<label class="field"><span>\${l}</span><textarea data-list="\${k}" rows="6">\${esc((s.lists[k] || []).join('\\n'))}</textarea></label>\`).join('')}</div><p class="muted small">One item per line. These feed the dropdowns.</p>\`;
+    // Josh Piper and Omar Contreras (config.js ▸ adminEmails) are always admins: their role can't be changed here.
+    const pagesCell = u => u.role === 'admin' ? '<span class="muted">All pages (admin)</span>'
+      : \`<button type="button" class="btn ghost small" data-pages="\${esc(u.id)}">\${(u.hidden || []).length ? \`\${(u.hidden || []).length} hidden ▸\` : 'All pages ▸'}</button>\`;
     const userBlock = users
-      ? \`<div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>\${users.map(u => \`<tr><td>\${esc(u.name || '')}</td><td>\${esc(u.email || '')}</td><td><select data-uid="\${esc(u.id)}" \${u.id === store.user.uid ? 'disabled' : ''}>\${ROLES.map(x => \`<option \${x === u.role ? 'selected' : ''}>\${x}</option>\`).join('')}</select></td></tr>\`).join('')}</tbody></table></div>
-         <p class="muted small"><b>viewer</b> sees dashboards and logs · <b>supervisor</b> adds/edits entries · <b>manager</b> also deletes and sees the Disciplinary Log &amp; attendance reasons · <b>admin</b> also manages settings, employees and users. New sign-ins start as <b>pending</b>.</p>\`
+      ? \`<div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Pages they see</th></tr></thead><tbody>\${users.map(u => \`<tr><td>\${esc(u.name || '')}</td><td>\${esc(u.email || '')}</td><td>\${isAdminEmail(u.email) ? '<b>admin</b> <small class="muted">(always)</small>' : \`<select data-uid="\${esc(u.id)}" \${u.id === store.user.uid ? 'disabled' : ''}>\${ROLES.map(x => \`<option \${x === u.role ? 'selected' : ''}>\${x}</option>\`).join('')}</select>\`}</td><td>\${pagesCell(u)}</td></tr>\`).join('')}</tbody></table></div>
+         <p class="muted small"><b>viewer</b> sees dashboards and logs · <b>supervisor</b> adds/edits entries · <b>manager</b> also deletes and sees the Disciplinary Log &amp; attendance reasons · <b>admin</b> also manages settings, employees and users. New sign-ins start as <b>pending</b> until you give them a role. <b>Pages they see</b>: hide pages from one person (they leave their menu and open as “No access”); changes apply to them right away. Admins always see every page.</p>\`
       : '<p class="muted">Loading users…</p>';
 
     return page('Settings & Lists', 'Targets, dropdown lists and masters. Save each block after editing.') +
@@ -4549,7 +4734,9 @@ export default {
         <label class="field"><span>Turn charge ($ per turned car)</span><input data-r="turnCharge" type="number" step="any" value="\${r.turnCharge ?? 500}"><small>Charged for each car with Turn = Y; shows in the rail Accessorial charges.</small></label></div>\` + grid('railc', RAILC(), r.customers) +
         '<div class="sticky-save"><button class="btn primary" type="submit">Save rail settings</button></div>') + \`</form>\` +
       section('Employees', '<p>The roster lives in its own table. <a class="btn ghost small" href="#/log/employees">Open Employee Roster ›</a></p>') +
-      (store.demo ? '' : section('Users & roles', userBlock)) +
+      (store.demo ? section('Users & roles', \`<p>Sign-in, users and page access start once the app is connected to the shared database (Firebase): until then this copy runs in Demo Mode, with its data only in this browser.</p>
+        <p><button type="button" class="btn ghost small" data-export-all>Download this browser's data (backup) ▸</button></p>
+        <p class="muted small">Keep this backup to move the data into the shared database: after you sign in there as an admin, use Import Excel ▸ Load a backup.</p>\`) : section('Users & roles', userBlock)) +
       section('Import from Excel', '<p>Load (or reload) everything from the Rail OTIF KPI Dashboard workbook. <a class="btn ghost small" href="#/import">Open importer ›</a></p>');
   },
 
@@ -4586,12 +4773,44 @@ export default {
       try { await store.saveConfig('rail', data); toast('Rail settings saved'); } catch (err) { toast(err.message, 'bad'); }
     });
     $$('[data-uid]', root).forEach(sel => sel.addEventListener('change', async e => {
-      try { await store.setUserRole(e.target.dataset.uid, e.target.value); toast('Role updated'); users = null; } catch (err) { toast(err.message, 'bad'); }
+      try { await store.setUserRole(e.target.dataset.uid, e.target.value); toast('Role updated'); users = null; rerender(); } catch (err) { toast(err.message, 'bad'); }
     }));
+    $$('[data-pages]', root).forEach(b => b.addEventListener('click', () => pagesDialog(users.find(u => u.id === b.dataset.pages), () => { users = null; rerender(); })));
+    $('[data-export-all]', root)?.addEventListener('click', () => {
+      const data = store.exportAll();
+      downloadBlob(new Blob([JSON.stringify({ app: 'atl-ops', exported: new Date().toISOString(), data })], { type: 'application/json' }), \`Atlanta Ops backup \${todayISO()}.json\`);
+    });
   },
 };
 
-const stripDefaults = s => JSON.parse(JSON.stringify(s));`]);
+const stripDefaults = s => JSON.parse(JSON.stringify(s));
+
+/** Tick the pages one user sees; unticked pages are hidden from them (saved as users/{uid}.hidden). */
+function pagesDialog(u, done) {
+  if (!u) return;
+  const hidden = new Set(u.hidden || []), groups = [...new Set(PAGES.map(p => p[2]))];
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = \`<form class="modal" novalidate>
+    <div class="modal-head"><h2>Pages \${esc(u.name || u.email)} sees</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
+    <p class="muted small">Untick a page to hide it from this person. Their role (\${esc(u.role || 'pending')}) still decides what they can change.</p>
+    <div class="toolbar"><button type="button" class="btn ghost small" data-all>Tick all</button><button type="button" class="btn ghost small" data-none>Untick all</button></div>
+    \${groups.map(g => \`<fieldset class="pg-group"><legend>\${esc(g)}</legend>\${PAGES.filter(p => p[2] === g).map(([key, label]) =>
+      \`<label class="pg-item"><input type="checkbox" value="\${esc(key)}" \${hidden.has(key) ? '' : 'checked'}> \${esc(label)}</label>\`).join('')}</fieldset>\`).join('')}
+    <div class="modal-foot"><span></span><div><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save</button></div></div>
+  </form>\`;
+  document.body.appendChild(back);
+  const close = () => back.remove(), boxes = $$('input[type=checkbox]', back);
+  back.addEventListener('click', e => { if (e.target === back || e.target.closest('[data-close]')) close(); });
+  back.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  $('[data-all]', back).addEventListener('click', () => boxes.forEach(b => { b.checked = true; }));
+  $('[data-none]', back).addEventListener('click', () => boxes.forEach(b => { b.checked = false; }));
+  $('form', back).addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await store.setUserHidden(u.id, boxes.filter(b => !b.checked).map(b => b.value)); toast('Page access saved'); close(); done(); } catch (err) { toast(err.message, 'bad'); }
+  });
+  boxes[0]?.focus();
+}`]);
 
 // ===================== views/writeup.js =====================
 ATL_SRC.push(['@atl/views/writeup.js', 0, `// Write-up dialog (Disciplinary Log ▸ New write-up): fill in the Employee Corrective Action / Write-Up form in the app,
