@@ -152,12 +152,11 @@ export function toThroughput(parsed, customers) {
 }`]);
 
 // ===================== config.js =====================
-ATL_SRC.push(['@atl/config.js', 0, `// Firebase web config — paste the values from
-// Firebase console ▸ Project settings ▸ General ▸ Your apps ▸ Web app ▸ SDK setup (Config).
+ATL_SRC.push(['@atl/config.js', 0, `// Firebase web config — from Firebase console ▸ Project settings ▸ General ▸ Your apps ▸ Web app ▸ SDK setup (Config).
 // These values are not secrets; access is controlled by firestore.rules and sign-in.
 //
-// While apiKey is left as "REPLACE_ME" the app runs in DEMO MODE: data is kept only in this
-// browser (localStorage) and no sign-in is required. Handy for trying it before Firebase is set up.
+// If apiKey is set back to "REPLACE_ME" (or the address ends in ?demo) the app runs in DEMO MODE: data is kept only
+// in this browser (localStorage) and no sign-in is required.
 //
 // Project: operational-dashboard-d1e8b (web app "Atlanta Ops").
 export const firebaseConfig = {
@@ -170,11 +169,11 @@ export const firebaseConfig = {
   appId: '1:282370471714:web:2bfd406de10929f30c177b',
 };
 
-// Sign-in methods shown on the login screen (enable the same ones in Firebase ▸ Authentication).
-export const signInMethods = { google: true, microsoft: false, email: true };
+// Sign-in: email + password only. Admins create everyone's sign-in in Users & Settings ▸ Authorized users.
+export const signInMethods = { google: false, microsoft: false, email: true };
 
-// Always admins (Josh Piper, Omar Contreras): their accounts become admin as soon as they sign in with this email,
-// once the email is verified. Keep this list the same as ADMIN_EMAILS in firestore.rules (lower case).
+// Always admins (Josh Piper, Omar Contreras). They set up their own sign-in once with "Admin setup" on the sign-in
+// page (then verify the email). Keep this list the same as ADMIN_EMAILS in firestore.rules (lower case).
 export const adminEmails = ['joshuapiper@piperlogistics.com', 'ocontreras@piperlogistics.com'];`]);
 
 // ===================== forms/archive.js =====================
@@ -1137,217 +1136,6 @@ export const allSOPRules = () => index().rules;
 export const sopCitation = r => \`\${r.doc.number ? r.doc.number + ' ' : ''}\${r.doc.short || r.doc.title}, \${r.section.split(' › ').slice(-2).join(' › ')}: \${r.text}\`;
 /** Short source tag for the drop-down: the document number, or its short name when it has none. */
 export const sopTag = doc => doc.number || doc.short || doc.title;`]);
-
-// ===================== forms/wrreport.js =====================
-ATL_SRC.push(['@atl/forms/wrreport.js', 0, `// Smurfit WestRock monthly customer report — a clone of the Electrolit monthly report built on the WestRock scorecard
-// (../westrock.js): cover page, executive summary (drafted from the data, editable), KPI table with 12-month trend,
-// highlights / areas of focus, comments and action plan, activity, order accuracy, in-house damage, arrival damage (ACR),
-// trucks, rail and demurrage, 12-month trend charts and analysis, safety, insurance. Word / Print-PDF / Outlook email
-// (executive summary in the message, Word attached and saved to Downloads); every output archived; summary kept per month.
-import { store } from '@atl/store.js';
-import { esc, toast, downloadBlob, todayISO, fmtNum, fmtMoney, $, $$ } from '@atl/util.js';
-import { emlDraft } from '@atl/forms/email.js';
-import { archiveSent } from '@atl/forms/archive.js';
-import { period, monthLabel, goodness, ymAdd, ymRange, analyze } from '@atl/electrolit.js';
-import { BUILDING, wrScorecard, wrSeries, WR_METRIC, WR_METRICS, WR_CHARTS, WR_VOL_KEYS, WR_VOL_LABELS } from '@atl/westrock.js';
-import { fmtV, fmtDelta, chartImages, logoImage, reportDocx, reportHtml, printReport, downloadDocx, summaryHtml } from '@atl/forms/elxreport.js';
-
-const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const longMonth = ym => \`\${MONTHS[+ym.slice(5, 7) - 1]} \${ym.slice(0, 4)}\`;
-const us = iso => (iso ? \`\${+iso.slice(5, 7)}/\${+iso.slice(8, 10)}/\${iso.slice(0, 4)}\` : '');
-const fv = (m, x) => (m.unit === 'num2' ? (typeof x === 'number' ? fmtNum(x, 2) : '—') : fmtV(m, x));
-const fd = (m, d) => (m.unit === 'num2' ? (typeof d === 'number' ? (d > 0 ? '+' : d < 0 ? '−' : '') + fmtNum(Math.abs(d), 2) : '—') : fmtDelta(m, d));
-const arrow = t => ({ Improving: '▲ Improving', Worsening: '▼ Worsening', Rising: '▲ Rising', Falling: '▼ Falling', Steady: '► Steady' }[t] || '—');
-const KPI_KEYS = ['fulfill', 'invAcc', 'binAcc', 'cycInv', 'dmgRate', 'rolls', 'per1000', 'onTime', 'held', 'railIn', 'dwell', 'demurrage', 'tonsIn', 'tonsOut'];
-
-export function wrReportData(ym) {
-  const rows = wrSeries(ymRange(ymAdd(ym, -11), ym)), S = rows.at(-1).S, prev = rows.at(-2)?.S;
-  const P = period(ym), months = ymRange(\`\${ym.slice(0, 4)}-01\`, ym);
-  const Y = wrScorecard({ ...P, kind: 'ytd', key: \`\${ym.slice(0, 4)}-YTD\`, months, from: months[0] + '-01', label: \`Year to date \${ym.slice(0, 4)}\`, short: \`YTD \${ym.slice(0, 4)}\` });
-  return { ym, rows, S, prev, Y, an: Object.fromEntries(WR_METRICS.map(m => [m.key, analyze(rows, m)])) };
-}
-
-export function draftWrSummary(D) {
-  const { S, prev, ym } = D, M = longMonth(ym), V = S.volume, A = S.acr, pm = MONTHS[(+ym.slice(5, 7) + 10) % 12], out = [];
-  const cmp = (k, now, before) => { const m = WR_METRIC[k]; if (typeof now !== 'number' || typeof before !== 'number' || fv(m, now) === fv(m, before)) return ''; return \`, \${goodness(m, now - before) > 0 ? 'better than' : 'compared with'} \${fv(m, before)} in \${pm}\`; };
-  const p = k => (prev ? WR_METRIC[k].get(prev) : '');
-  if (V.has) out.push(\`In \${M}, Piper Warehouse received \${fmtNum(V.total.tonsIn, 1)} tons (\${fmtNum(V.total.loadsIn)} loads) and shipped \${fmtNum(V.total.tonsOut, 1)} tons (\${fmtNum(V.total.loadsOut)} loads) for Smurfit WestRock at Facility \${BUILDING}.\`);
-  const acc = [];
-  if (typeof S.fulfill.pct === 'number') acc.push(\`fulfillment accuracy was \${fv(WR_METRIC.fulfill, S.fulfill.pct)} (\${S.fulfill.n} mis-pick\${S.fulfill.n === 1 ? '' : 's'} / mis-ship\${S.fulfill.n === 1 ? '' : 's'})\${cmp('fulfill', S.fulfill.pct, p('fulfill'))}\`);
-  if (typeof S.invAcc.pct === 'number') acc.push(\`receiving accuracy was \${fv(WR_METRIC.invAcc, S.invAcc.pct)} (\${S.invAcc.n} inbound discrepanc\${S.invAcc.n === 1 ? 'y' : 'ies'})\${cmp('invAcc', S.invAcc.pct, p('invAcc'))}\`);
-  if (acc.length) out.push(acc.join('; ').replace(/^./, c => c.toUpperCase()) + '.');
-  if (S.cycle && (typeof S.cycle.invAcc === 'number' || typeof S.cycle.binAcc === 'number')) out.push(\`Cycle counts showed inventory accuracy of \${fv({ unit: 'pct' }, S.cycle.invAcc)} and BIN accuracy of \${fv({ unit: 'pct' }, S.cycle.binAcc)}\${typeof S.cycle.pctComplete === 'number' ? \`, with \${Math.round(S.cycle.pctComplete * 100)}% of locations counted\` : ''}\${cmp('binAcc', S.cycle.binAcc, p('binAcc'))}.\`);
-  if (V.has || S.damage.n) out.push(S.damage.n ? \`\${S.damage.n} in-house damage incident\${S.damage.n === 1 ? ' was' : 's were'} logged (\${fmtNum(S.damage.qty)} units, est. \${fmtMoney(S.damage.value)})\${typeof S.damage.per1000 === 'number' ? \`, \${fmtNum(S.damage.per1000, 2)} per 1,000 tons handled\` : ''}.\` : 'There was no in-house damage this month.');
-  if (A.n) { const top = A.byOrigin[0]; out.push(\`Arrival Condition Reports recorded \${A.rolls} roll\${A.rolls === 1 ? '' : 's'} damaged on \${A.n} arrival\${A.n === 1 ? '' : 's'} (\${A.truck} truck, \${A.train} rail)\${typeof A.per1000 === 'number' ? \` — \${fmtNum(A.per1000, 2)} per 1,000 tons received\` : ''}: \${A.edge} end/edge, \${A.scuff} side scuff and \${A.clamp} loading clamp damages, \${fmtNum(A.laps)} laps. \${top ? \`\${top[0]} accounted for the most damaged rolls (\${top[1].rolls}).\` : ''}\`); }
-  else if (A.hasTons) out.push('No arrival damage was recorded on WestRock loads this month.');
-  if (S.trucks.rated) out.push(\`\${fv({ unit: 'pct' }, S.trucks.onTime)} of trucks arrived on time\${S.trucks.outN ? \` and \${fv({ unit: 'pct' }, S.trucks.pctHeld)} of outbound appointments were held more than 1.5 hours\` : ''}.\`);
-  if (S.rail.received || S.rail.onHand.length) out.push(\`\${S.rail.received} rail car\${S.rail.received === 1 ? ' was' : 's were'} received\${typeof S.rail.avgDwell === 'number' ? \` with an average dwell of \${fmtNum(S.rail.avgDwell, 1)} business days\` : ''}; demurrage for the month was \${fmtMoney(S.rail.demurrage)}\${S.rail.onHand.length ? \` and \${S.rail.onHand.length} car\${S.rail.onHand.length === 1 ? ' is' : 's are'} on hand (\${fmtMoney(S.rail.accruing)} accruing)\` : ''}.\`);
-  const rec = S.osha.filter(r => r.recordable === 'Yes').length;
-  out.push(rec ? \`There \${rec === 1 ? 'was one OSHA recordable case' : \`were \${rec} OSHA recordable cases\`} in building \${BUILDING} this month.\` : \`There were no OSHA recordable injuries in building \${BUILDING} this month.\`);
-  return out.join('\\n\\n');
-}
-function highlights(D) {
-  const good = [], watch = [];
-  for (const k of KPI_KEYS) {
-    const m = WR_METRIC[k], x = m.get(D.S), pv = D.prev ? m.get(D.prev) : '';
-    if (typeof x !== 'number' || !m.better) continue;
-    const g = goodness(m, typeof pv === 'number' ? x - pv : '');
-    if (m.unit === 'pct' && m.better === 'up' && x >= 0.9999) good.push(\`\${m.label}: \${fv(m, x)}\`);
-    else if (g > 0) good.push(\`\${m.label} improved to \${fv(m, x)} (\${fd(m, x - pv)})\`);
-    else if (g < 0) watch.push(\`\${m.label} moved to \${fv(m, x)} (\${fd(m, x - pv)} vs last month)\`);
-    if (D.an[k]?.trend === 'Worsening') watch.push(\`\${m.label} has been trending the wrong way over the last 12 months\`);
-  }
-  if (D.S.rail.accruing) watch.push(\`\${fmtMoney(D.S.rail.accruing)} demurrage accruing on \${D.S.rail.onHand.length} car\${D.S.rail.onHand.length === 1 ? '' : 's'} on hand\`);
-  return { good, watch };
-}
-
-function wrBlocks(D, o) {
-  const { S, prev, Y, an, ym } = D, M = longMonth(ym), m0 = M.split(' ')[0], b = [], A = S.acr;
-  const mv = (k, sc) => (sc ? WR_METRIC[k].get(sc) : '');
-  b.push({ t: 'cover', title: 'Monthly Performance Report', customer: 'Smurfit WestRock', month: M, site: \`Piper Warehouse — Facility \${BUILDING}\`, preparedFor: o.preparedFor || 'WestRock team', preparedBy: o.preparedBy || '', date: us(todayISO()), logo: o.logo,
-    contents: ['Executive summary', 'Operations activity', 'Order accuracy', 'Inventory accuracy', 'In-house damage', 'Arrival damage (ACR)', 'Truck performance', 'Rail and demurrage', '12-month trends', 'Safety', 'Insurance'] });
-  b.push({ t: 'break' });
-  b.push({ t: 'h1', text: '1. Executive summary' });
-  for (const para of String(o.summary || draftWrSummary(D)).split(/\\n\\s*\\n/)) if (para.trim()) b.push({ t: 'p', text: para.trim() });
-  b.push({ t: 'h2', text: 'Key performance indicators' });
-  b.push({ t: 'table', widths: [3000, 1350, 1350, 1350, 1350, 1680], head: ['Measure', m0, 'Prior month', '3-month avg', 'Year to date', '12-month trend'],
-    rows: KPI_KEYS.map(k => { const m = WR_METRIC[k], a = an[k]; return [m.label, fv(m, mv(k, S)), fv(m, mv(k, prev)), fv(m, a.avg3), fv(m, mv(k, Y)), a.n ? arrow(a.trend) : '—']; }) });
-  const hl = highlights(D);
-  if (hl.good.length) { b.push({ t: 'h2', text: 'Highlights' }); b.push({ t: 'bullets', items: hl.good }); }
-  if (hl.watch.length) { b.push({ t: 'h2', text: 'Areas of focus' }); b.push({ t: 'bullets', items: hl.watch }); }
-  if (String(o.comments || '').trim()) { b.push({ t: 'h2', text: 'Comments and action plan' }); for (const para of o.comments.split(/\\n\\s*\\n/)) if (para.trim()) b.push({ t: 'p', text: para.trim() }); }
-
-  b.push({ t: 'h1', text: '2. Operations activity' });
-  b.push({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['', m0, 'Prior month', 'Year to date'], rows: WR_VOL_KEYS.map(k => [WR_VOL_LABELS[k], ...[S, prev, Y].map(sc => (sc && sc.volume.has ? fmtNum(sc.volume.total[k], k.startsWith('loads') ? 0 : 1) : '—'))]) });
-  b.push({ t: 'note', text: \`From Customer Throughput for Smurfit Westrock (building \${BUILDING}).\` });
-
-  b.push({ t: 'h1', text: '3. Order accuracy' });
-  b.push({ t: 'table', widths: [3360, 1680, 1680, 1680, 1680], head: ['', 'Loads', 'Errors', 'Accuracy', 'YTD accuracy'], rows: [
-    ['Fulfillment (mis-picks / mis-ships)', fmtNum(S.fulfill.d), String(S.fulfill.n), fv(WR_METRIC.fulfill, S.fulfill.pct), fv(WR_METRIC.fulfill, Y.fulfill.pct)],
-    ['Receiving (inbound discrepancies)', fmtNum(S.invAcc.d), String(S.invAcc.n), fv(WR_METRIC.invAcc, S.invAcc.pct), fv(WR_METRIC.invAcc, Y.invAcc.pct)]] });
-  const inc = list => list.map(r => [us(r.date), r.category || r.type, r.responsible, r.description]);
-  b.push({ t: 'h2', text: 'Outbound errors' });
-  b.push(S.fulfill.list.length ? { t: 'table', widths: [1200, 1700, 2300, 4880], head: ['Date', 'Type', 'Responsible party', 'Description'], rows: inc(S.fulfill.list) } : { t: 'p', text: 'No mis-picks or mis-ships this month.' });
-  b.push({ t: 'h2', text: 'Inbound discrepancies' });
-  b.push(S.invAcc.list.length ? { t: 'table', widths: [1200, 1700, 2300, 4880], head: ['Date', 'Type', 'Responsible party', 'Description'], rows: inc(S.invAcc.list) } : { t: 'p', text: 'No inbound discrepancies this month.' });
-
-  b.push({ t: 'h1', text: '4. Inventory accuracy (cycle counts)' });
-  const C = S.cycle?.months?.[0] || {};
-  b.push(C.has ? { t: 'table', widths: [3360, 2240, 2240, 2240], head: ['', m0, 'Prior month', 'Year to date (avg)'], rows: [['Locations counted', \`\${fmtNum(C.counted)} of \${fmtNum(C.totalLocations)}\`, '', ''], ...[['binAcc', 'BIN accuracy'], ['cycInv', 'Inventory accuracy'], ['countAcc', 'Count accuracy']].map(([k, l]) => [l, fv(WR_METRIC[k], mv(k, S)), fv(WR_METRIC[k], mv(k, prev)), fv(WR_METRIC[k], mv(k, Y))])] } : { t: 'p', text: 'No cycle count report was posted for this month.' });
-
-  b.push({ t: 'h1', text: '5. In-house damage' });
-  b.push({ t: 'p', text: S.damage.n ? \`\${S.damage.n} incident\${S.damage.n === 1 ? '' : 's'} (\${fmtNum(S.damage.qty)} units, est. \${fmtMoney(S.damage.value)}) — \${typeof S.damage.per1000 === 'number' ? fmtNum(S.damage.per1000, 2) : '—'} per 1,000 tons handled (year to date \${typeof Y.damage.per1000 === 'number' ? fmtNum(Y.damage.per1000, 2) : '—'}).\` : 'No in-house damage was logged this month.' });
-  if (S.damage.list.length) b.push({ t: 'table', widths: [1150, 1800, 1800, 1900, 1430, 2000], head: ['Date', 'Type of damage', 'Cause', 'Responsible party', 'Qty', 'Est. $ value'], rows: S.damage.list.map(r => [us(r.date), r.damageType, r.cause, r.responsible, \`\${fmtNum(r.qty)} \${r.unit}\`, fmtMoney(r.value)]) });
-
-  b.push({ t: 'h1', text: '6. Arrival damage — Arrival Condition Reports (ACR)' });
-  b.push({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['', m0, 'Prior month', 'Year to date'], rows: [
-    ['Damaged arrivals (ACRs)', String(A.n), prev ? String(prev.acr.n) : '—', String(Y.acr.n)], ['Rolls damaged on arrival', String(A.rolls), prev ? String(prev.acr.rolls) : '—', String(Y.acr.rolls)],
-    ['Damaged rolls per 1,000 tons received', fv(WR_METRIC.per1000, A.per1000), prev ? fv(WR_METRIC.per1000, prev.acr.per1000) : '—', fv(WR_METRIC.per1000, Y.acr.per1000)], ['Laps damaged', fmtNum(A.laps), prev ? fmtNum(prev.acr.laps) : '—', fmtNum(Y.acr.laps)],
-    ['Roll End/Edge · Side Scuff · Loading Clamp', \`\${A.edge} · \${A.scuff} · \${A.clamp}\`, prev ? \`\${prev.acr.edge} · \${prev.acr.scuff} · \${prev.acr.clamp}\` : '—', \`\${Y.acr.edge} · \${Y.acr.scuff} · \${Y.acr.clamp}\`]] });
-  if (A.byOrigin.length) b.push({ t: 'table', widths: [5040, 2520, 2520], head: ['Origin', 'Arrivals', 'Rolls damaged'], rows: A.byOrigin.map(([k, x]) => [k, String(x.n), String(x.rolls)]), caption: 'By origin' });
-  if (A.list.length) b.push({ t: 'table', widths: [1150, 1150, 900, 2300, 1500, 800, 800, 2480], head: ['Date', 'Ref #', 'Mode', 'Origin', 'Truck / railcar', 'Rolls', 'Laps', 'Damage'], rows: A.list.map(r => [us(r.date), r.ref, r.mode, r.origin, r.manifest, String(r.rollCount), String(r.laps), [r.types, r.radial ? 'radial' : ''].filter(Boolean).join(' · ')]), caption: \`Arrival Condition Reports in \${m0} (\${A.n})\` });
-  b.push({ t: 'note', text: 'Damage present when the truck or railcar arrived (carrier / mill), recorded on receipt. Rolls are distinct roll numbers.' });
-
-  b.push({ t: 'h1', text: '7. Truck performance' });
-  const K = S.trucks;
-  b.push(K.n ? { t: 'table', widths: [5040, 2520, 2520], head: ['', m0, 'Year to date'], rows: [['Trucks on time (±' + S.cfg.onTimeMin + ' min)', fv({ unit: 'pct' }, K.onTime), fv({ unit: 'pct' }, Y.trucks.onTime)], ['Late', fv({ unit: 'pct' }, K.late), fv({ unit: 'pct' }, Y.trucks.late)], ['Outbound appointments held > 1.5 h', fv({ unit: 'pct' }, K.pctHeld), fv({ unit: 'pct' }, Y.trucks.pctHeld)]] } : { t: 'p', text: 'Truck appointment data is not available for this month.' });
-
-  const R = S.rail;
-  b.push({ t: 'h1', text: '8. Rail and demurrage' });
-  b.push({ t: 'table', widths: [4080, 2000, 2000, 2000], head: ['', m0, 'Prior month', 'Year to date'], rows: [['Rail cars received', String(R.received), prev ? String(prev.rail.received) : '—', String(Y.rail.received)], ['Average dwell (business days)', fv(WR_METRIC.dwell, R.avgDwell), prev ? fv(WR_METRIC.dwell, prev.rail.avgDwell) : '—', fv(WR_METRIC.dwell, Y.rail.avgDwell)], ['Demurrage', fmtMoney(R.demurrage), prev ? fmtMoney(prev.rail.demurrage) : '—', fmtMoney(Y.rail.demurrage)]] });
-  if (R.onHand.length) b.push({ t: 'table', widths: [2200, 1700, 1700, 1500, 1480, 1500], head: ['Car on hand', 'Status', 'CP date', 'Days since CP', 'Free days left', 'Accruing'], rows: R.onHand.map(c => [c.car, c.status, us(c.cpDate), String(c.days), String(c.remaining ?? ''), c.accruing ? fmtMoney(c.accruing) : '-']), caption: \`Cars on hand as of \${us(todayISO())}\` });
-
-  b.push({ t: 'h1', text: '9. 12-month trends' });
-  b.push({ t: 'note', text: \`\${monthLabel(D.rows[0].ym)} – \${monthLabel(ym)}. Trend = the direction of the best-fit line through the months with data.\` });
-  for (const c of WR_CHARTS) if (o.charts?.[c.id]) b.push({ t: 'img', ...o.charts[c.id], caption: c.title });
-  b.push({ t: 'h2', text: 'Trend analysis' });
-  b.push({ t: 'table', widths: [2900, 1300, 1300, 1300, 1580, 1700], head: ['Measure', 'Latest', '3-month avg', '12-month avg', 'vs same month last year', 'Trend'],
-    rows: ['fulfill', 'invAcc', 'binAcc', 'cycInv', 'dmgRate', 'acr', 'rolls', 'per1000', 'laps', 'onTime', 'held', 'dwell', 'demurrage', 'tonsIn', 'tonsOut', 'loadsIn', 'loadsOut'].map(k => { const m = WR_METRIC[k], a = an[k]; return a.n ? [m.label, fv(m, a.last.v), fv(m, a.avg3), fv(m, a.avg12), a.lastYear ? fd(m, a.yoy) : '—', arrow(a.trend)] : [m.label, '—', '—', '—', '—', 'No data']; }) });
-
-  b.push({ t: 'h1', text: '10. Safety' });
-  b.push({ t: 'p', text: \`Building \${BUILDING}: \${S.osha.length} safety incident report\${S.osha.length === 1 ? '' : 's'} this month (\${S.osha.filter(r => r.recordable === 'Yes').length} OSHA recordable); year to date \${Y.osha.length} (\${Y.osha.filter(r => r.recordable === 'Yes').length} recordable).\` });
-  if (S.osha.length) b.push({ t: 'table', widths: [1500, 1200, 2200, 2180, 1500, 1500], head: ['Report #', 'Date', 'Incident type', 'Category', 'OSHA recordable', 'Status'], rows: S.osha.map(r => [r.caseNo, us(r.date), r.types, r.category, r.recordable, r.status]) });
-
-  const I = S.insurance || {};
-  b.push({ t: 'h1', text: '11. Insurance' });
-  const ins = [['Insured', I.insured], ['Insurance carrier', I.carrier], ['Policy type', I.policyType], ['Policy #', I.policyNo], ['Effective', I.effective && us(I.effective)], ['Expires', I.expires && us(I.expires)], ['General liability', I.gl], ['Warehouse legal liability', I.wll], ['Umbrella / excess', I.umbrella]].filter(([, x]) => x);
-  b.push(ins.length ? { t: 'table', widths: [3600, 6480], head: ['Coverage', 'Details'], rows: ins } : { t: 'p', text: 'The current certificate of insurance is available on request.' });
-  return b;
-}
-
-export const wrReportName = ym => \`Smurfit WestRock Monthly Performance Report \${longMonth(ym)}\`;
-export async function buildWrReport(ym, o = {}) {
-  const D = wrReportData(ym);
-  const [charts, logo] = await Promise.all([chartImages(D.rows, 1000, 400, WR_CHARTS), logoImage()]);
-  const blocks = wrBlocks(D, { ...o, charts, logo }), name = wrReportName(ym), footer = \`\${name} · Piper Warehouse\`;
-  return { D, blocks, name, kind: 'wrMonthly', building: BUILDING, ref: 'westrock', docx: () => reportDocx(blocks, footer), html: () => reportHtml(blocks, name, footer) };
-}
-export async function emailWrReport(R, to = '', signer = '') {
-  const { S, ym } = R.D;
-  const rows = KPI_KEYS.map(k => { const m = WR_METRIC[k], x = m.get(S); return typeof x === 'number' ? \`<tr><td style="padding:4px 10px;border:1px solid #d5dbe4">\${esc(m.label)}</td><td style="padding:4px 10px;border:1px solid #d5dbe4;text-align:right"><b>\${esc(fv(m, x))}</b></td></tr>\` : ''; }).join('');
-  const html = \`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1c232d"><p>Hello WestRock team,</p>
-    <p>Attached is the Piper Warehouse monthly performance report for <b>\${esc(longMonth(ym))}</b> (Facility \${BUILDING}).</p>
-    \${summaryHtml(R.blocks)}<p style="margin:0 0 4px"><b>Key results for the month</b></p><table style="border-collapse:collapse;font-size:10.5pt;margin:6px 0 12px">\${rows}</table>
-    <p>The report includes order accuracy, in-house and arrival damage (ACR), truck and rail performance, 12-month trends, safety and insurance.</p>
-    <p>Please let us know if you have any questions.</p><p>Thank you,<br>\${esc(signer || '')}<br>Piper Warehouse</p></div>\`;
-  const bytes = new Uint8Array(await R.docx().arrayBuffer()), subject = \`\${R.name} — Piper Warehouse\`, attachments = [[\`\${R.name}.docx\`, bytes, DOCX]];
-  downloadBlob(\`\${R.name}.eml\`, emlDraft({ to, subject, html, attachments }));
-  setTimeout(() => downloadBlob(\`\${R.name}.docx\`, new Blob([bytes], { type: DOCX })), 400);
-  await archiveSent({ kind: 'wrMonthly', building: BUILDING, fileDate: ym + '-01', title: R.name, subject, to, html, attachments, ref: \`westrock-\${ym}\` });
-}
-
-// ---------------------------------------------------------------- the form
-export function openWrReportForm(defaultYm) {
-  const saved = id => store.rows('wrReports').find(r => r.id === id) || {};
-  const months = ymRange(ymAdd(todayISO().slice(0, 7), -35), todayISO().slice(0, 7)).reverse();
-  let ym = defaultYm;
-  document.querySelector('.elx-rep-back')?.remove();
-  const el = document.createElement('div');
-  el.className = 'modal-back elx-rep-back';
-  const fill = () => {
-    const s = saved(ym), cfg = saved('config');
-    el.innerHTML = \`<form class="modal elx-rep" role="dialog" aria-modal="true" aria-labelledby="wr-rep-t">
-      <div class="modal-head"><h2 id="wr-rep-t">📄 Monthly report for Smurfit WestRock</h2><button type="button" class="icon-btn" data-x aria-label="Close">✕</button></div>
-      <p class="muted small">Cover page, executive summary, KPI scorecard, activity, order accuracy, in-house damage, arrival damage (ACR), trucks, rail and demurrage, 12-month trends, safety and insurance. Every copy is kept in the Sent Reports Archive.</p>
-      <div class="elx-set-grid">
-        <label>Report month <select name="ym">\${months.map(m => \`<option value="\${m}"\${m === ym ? ' selected' : ''}>\${monthLabel(m)}</option>\`).join('')}</select></label>
-        <label>Prepared for <input name="preparedFor" value="\${esc(s.preparedFor || cfg.preparedFor || 'WestRock team')}"></label>
-        <label>Prepared by <input name="preparedBy" value="\${esc(s.preparedBy || cfg.preparedBy || store.user?.name || '')}"></label>
-        <label class="wide">Email to <input name="to" value="\${esc(cfg.to || '')}" placeholder="name@smurfitwestrock.com; …"></label>
-        <label class="wide">Executive summary <span class="muted small">(drafted from the data — edit as needed; blank lines separate paragraphs)</span><textarea name="summary" rows="9">\${esc(s.summary || draftWrSummary(wrReportData(ym)))}</textarea></label>
-        <label class="wide">Comments and action plan <span class="muted small">(optional)</span><textarea name="comments" rows="4">\${esc(s.comments || '')}</textarea></label>
-        <label class="wide inc-check"><input type="checkbox" name="saveRec" checked> Also save this month's scorecard record (Saved records tab)</label>
-      </div>
-      <div class="modal-foot"><button type="button" class="btn ghost" data-redraft>↻ Redraft summary</button><span class="grow"></span>
-        <button type="button" class="btn ghost" data-out="print">🖨 Print / PDF</button><button type="button" class="btn" data-out="word">⬇ Word</button><button type="submit" class="btn primary">✉ Create email</button></div></form>\`;
-    const form = $('form', el), f = form.elements;
-    $('[data-x]', el).addEventListener('click', () => el.remove());
-    f.ym.addEventListener('change', () => { ym = f.ym.value; fill(); });
-    $('[data-redraft]', el).addEventListener('click', () => { f.summary.value = draftWrSummary(wrReportData(ym)); });
-    const go = async kind => {
-      const btns = $$('button', form); btns.forEach(x => { x.disabled = true; });
-      const o = { summary: f.summary.value, comments: f.comments.value, preparedBy: f.preparedBy.value.trim(), preparedFor: f.preparedFor.value.trim() };
-      try {
-        const R = await buildWrReport(ym, o);
-        if (kind === 'print') { printReport(R); await archiveSent({ kind: 'wrMonthly', building: BUILDING, fileDate: ym + '-01', title: \`\${R.name} (printed / PDF)\`, subject: R.name, html: '', attachments: [[\`\${R.name}.docx\`, new Uint8Array(await R.docx().arrayBuffer()), DOCX]], ref: \`westrock-\${ym}-print\` }); }
-        else if (kind === 'word') await downloadDocx(R); else await emailWrReport(R, f.to.value.trim(), o.preparedBy);
-        if (store.can('edit')) {
-          await store.set('wrReports', ym, { ...o, month: ym, updatedAt: new Date().toISOString() });
-          await store.set('wrReports', 'config', { to: f.to.value.trim(), preparedBy: o.preparedBy, preparedFor: o.preparedFor });
-          if (f.saveRec.checked) { const P = period(ym); await store.set('wrScorecards', P.key, { key: P.key, kind: P.kind, label: P.label, savedAt: new Date().toISOString(), savedBy: store.user?.name || store.user?.email || '', S: JSON.parse(JSON.stringify(R.D.S)) }); }
-        }
-        toast(kind === 'print' ? 'Report opened — choose “Save as PDF” in the print window' : kind === 'word' ? 'Word report downloaded' : 'Email created — open it in Outlook, check it and press Send');
-      } catch (e) { console.error(e); toast(e.message, 'bad'); }
-      btns.forEach(x => { x.disabled = false; });
-    };
-    $$('[data-out]', el).forEach(x => x.addEventListener('click', () => go(x.dataset.out)));
-    form.addEventListener('submit', e => { e.preventDefault(); go('email'); });
-  };
-  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
-  document.body.appendChild(el);
-  import('@atl/westrock.js').then(W => store.need(W.COLLS)).then(fill, fill);
-}`]);
 
 // ===================== hrpdf.js =====================
 ATL_SRC.push(['@atl/hrpdf.js', 0, `// Reads the HR system's "Detailed Hours Overview (PDF)" report in the browser — no outside libraries.
@@ -2346,6 +2134,14 @@ export const store = {
   listUsers: () => backend.listUsers(),
   setUserRole: (uid, role) => backend.set('users', uid, { role }, true),
   setUserHidden: (uid, hidden) => backend.set('users', uid, { hidden }, true),
+  /** Admin: create someone's sign-in (email + password) without signing yourself out. Returns their uid. */
+  createAccount: (email, password) => backend.createAccount(email, password),
+  /** Admin: write a user's profile / access (e.g. right after createAccount). */
+  setUserDoc: (uid, data) => backend.set('users', uid, clean(data), true),
+  /** Admin: take away someone's access (their sign-in stops opening the app). */
+  removeUser: uid => backend.remove('users', uid),
+  /** The signed-in person changes their own password. */
+  changePassword: (current, next) => backend.changePassword(current, next),
   /** Demo mode: everything this browser holds, for moving it into the shared database. */
   exportAll: () => backend.exportAll?.() ?? null,
 
@@ -2373,9 +2169,10 @@ export async function boot(onAuth) {
     if (user && store.can('view')) await loadConfig();
     onAuth(user);
     // An admin changing this user's role or hidden pages takes effect right away.
-    if (user) backend.watchDoc('users', user.uid, d => {
-      const hidden = d.hidden || [];
-      if (d.role && (d.role !== store.role || JSON.stringify(hidden) !== JSON.stringify(store.hidden))) { store.role = d.role; store.hidden = hidden; emit('access'); }
+    // An admin removing this user (their profile deleted) closes the app for them.
+    if (user && !demo) backend.watchDoc('users', user.uid, d => {
+      const hidden = d.hidden || [], role = d.role || (isAdminEmail(user.email) ? store.role : 'none');
+      if (role !== store.role || JSON.stringify(hidden) !== JSON.stringify(store.hidden)) { store.role = role; store.hidden = hidden; emit('access'); }
     });
   });
 }
@@ -2488,6 +2285,7 @@ async function firebaseBackend() {
     localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }),
   });
   const snapDocs = s => s.docs.map(d => ({ id: d.id, ...d.data() }));
+  let adder = null; // auth instance used only by createAccount
 
   return {
     onAuth(cb) {
@@ -2499,9 +2297,11 @@ async function firebaseBackend() {
       // A listed admin email becomes admin once verified (firestore.rules checks the same).
       const boss = isAdminEmail(u.email) && u.verified;
       if (!snap.exists()) {
-        const role = boss ? 'admin' : 'pending';
-        await F.setDoc(ref, { email: u.email, name: u.name, role, createdAt: F.serverTimestamp() });
-        return { role, hidden: [] };
+        // Only admins add people (Users & Settings ▸ Authorized users). A sign-in with no profile has no access;
+        // Josh / Omar get their admin profile here once their email is verified.
+        if (!boss) return { role: isAdminEmail(u.email) ? 'pending' : 'none', hidden: [] };
+        await F.setDoc(ref, { email: u.email.toLowerCase(), name: u.name, role: 'admin', createdAt: F.serverTimestamp() });
+        return { role: 'admin', hidden: [] };
       }
       const d = snap.data();
       if (boss && d.role !== 'admin') { await F.setDoc(ref, { role: 'admin' }, { merge: true }); return { role: 'admin', hidden: [] }; }
@@ -2517,6 +2317,20 @@ async function firebaseBackend() {
       await A.sendEmailVerification(c.user).catch(err => console.warn('Verification email not sent', err));
     },
     resetPassword: e => A.sendPasswordResetEmail(auth, e),
+    async createAccount(email, password) {
+      // A second Firebase app instance, so creating the account doesn't sign the admin out.
+      adder ||= A.getAuth(initializeApp(firebaseConfig, 'add-user'));
+      await A.setPersistence(adder, A.inMemoryPersistence);
+      const c = await A.createUserWithEmailAndPassword(adder, email, password);
+      const uid = c.user.uid;
+      await A.signOut(adder);
+      return uid;
+    },
+    async changePassword(current, next) {
+      const u = auth.currentUser;
+      await A.reauthenticateWithCredential(u, A.EmailAuthProvider.credential(u.email, current));
+      await A.updatePassword(u, next);
+    },
     sendVerification: () => A.sendEmailVerification(auth.currentUser),
     async refreshUser() {
       await auth.currentUser?.reload();
@@ -2605,6 +2419,11 @@ function demoBackend() {
     async ensureUserDoc() { return { role: 'admin', hidden: [] }; },
     signInProvider: async () => {}, signInEmail: async () => {}, signUpEmail: async () => {}, resetPassword: async () => {},
     sendVerification: async () => {}, refreshUser: async () => {},
+    async createAccount(email) {
+      if (list('users').some(u => u.email === email)) throw Object.assign(new Error('That email already has a sign-in.'), { code: 'auth/email-already-in-use' });
+      return 'demo-' + newId();
+    },
+    async changePassword() {},
     exportAll: () => JSON.parse(JSON.stringify(mem)),
     signOut: async () => { if (confirm('Demo mode: clear all demo data stored in this browser?')) { localStorage.removeItem(KEY); location.reload(); } },
     async subscribe(c, cb) { (subs.get(c) || subs.set(c, []).get(c)).push(cb); cb(list(c)); },
@@ -2627,7 +2446,7 @@ function demoBackend() {
       for (const d of docs) { if (d._delete) delete coll(c)[d._delete]; else coll(c)[d.id || newId()] = clean(d); }
       fire(c);
     },
-    async listUsers() { return [{ id: 'demo', email: 'demo@local', name: 'Demo User', role: 'admin' }]; },
+    async listUsers() { return [{ id: 'demo', email: 'demo@local', name: 'Demo User', role: 'admin' }, ...list('users')]; },
   };
 }`]);
 
@@ -4406,6 +4225,235 @@ export default {
   },
 };`]);
 
+// ===================== views/safety.js =====================
+ATL_SRC.push(['@atl/views/safety.js', 0, `// Safety Incidents & OSHA recordkeeping (#/safety): searchable incident history, the OSHA 300 Log and 300A Summary,
+// TRIR / DART rates from the Labor log's hours, and OTIF Log Recordable Incidents missing a required report.
+import { store } from '@atl/store.js';
+import { esc, fmtNum, downloadXLSX, toast, $, $$, todayISO, isISO, yearOf } from '@atl/util.js';
+import { kpi, chart, chartBox, table, badge } from '@atl/ui.js';
+import { openIncidentForm, fromOtif, otifWaiting, classify, isRec, isDart, typesText, otherText, TYPES, CATEGORIES, STATUSES, OSHA_TYPES, FORM_NO } from '@atl/forms/incident.js';
+
+const st = { q: '', year: '', facility: '', status: '', type: '', rec: false, tab: 'history', limit: 200 };
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const us = iso => (isISO(iso) ? \`\${+iso.slice(5, 7)}/\${+iso.slice(8, 10)}/\${iso.slice(0, 4)}\` : '');
+const cap = n => Math.min(180, Math.max(0, Math.round(+n || 0)));
+const STATUS_TONE = { Open: 'bad', 'Under Investigation': 'warn', 'Actions Pending': 'warn', Closed: 'good' };
+const TYPE_TONE = { 'Near Miss': 'warn', 'Unsafe Condition': 'info', 'Unsafe Act': 'info', 'Recordable Incident': 'bad' };
+const TYPE_COL = { 'Near Miss': '#c0904d', 'Unsafe Condition': '#4d6f99', 'Unsafe Act': '#222b36', 'Recordable Incident': '#c0392b' };
+const CLASS_SHORT = { Death: 'Death', 'Days away from work': 'Days away', 'Job transfer or restriction': 'Restricted', 'Other recordable case': 'Other recordable' };
+const caseNo = r => r.oshaCaseNo || r.id;
+
+const scoped = (year, fac) => store.rows('incidents').filter(r => (!year || String(yearOf(r.date)) === String(year)) && (!fac || String(r.facility) === fac));
+/** Hours worked (regular + OT) and the average number of people working per week, from the Labor log. */
+function hoursFor(year, fac) {
+  const rows = store.rows('labor').filter(r => String(yearOf(r.weekEnding)) === String(year) && (!fac || String(r.building) === fac));
+  let hours = 0; const weeks = new Map();
+  for (const r of rows) { const h = (+r.reg || 0) + (+r.ot || 0); hours += h; if (h > 0) (weeks.get(r.weekEnding) || weeks.set(r.weekEnding, new Set()).get(r.weekEnding)).add(r.employee); }
+  const avg = weeks.size ? [...weeks.values()].reduce((a, s) => a + s.size, 0) / weeks.size : 0;
+  return { hours, avg: Math.round(avg), weeks: weeks.size };
+}
+const rate = (n, hours) => (hours ? (n * 200000) / hours : null);
+/** OSHA 300 totals for a list of recordable cases. */
+function totals(rec) {
+  const c = k => rec.filter(r => classify(r) === k).length;
+  return { G: c('Death'), H: c('Days away from work'), I: c('Job transfer or restriction'), J: c('Other recordable case'),
+    K: rec.reduce((a, r) => a + cap(r.daysAway), 0), L: rec.reduce((a, r) => a + cap(r.daysRestricted), 0),
+    M: OSHA_TYPES.map(t => rec.filter(r => (r.oshaType || 'Injury') === t).length) };
+}
+function filtered() {
+  let rows = scoped(st.year, st.facility);
+  if (st.status) rows = rows.filter(r => (r.status || 'Open') === st.status);
+  if (st.type) rows = rows.filter(r => (r.types || []).includes(st.type));
+  if (st.rec) rows = rows.filter(isRec);
+  if (st.q) { const q = st.q.toLowerCase(); rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q)); }
+  return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.time || '').localeCompare(String(a.time || '')) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }));
+}
+const frame = (title, id, h, aria) => \`<div class="xl-chart"><h4>\${title}</h4>\${chartBox(id, h, aria)}</div>\`;
+const where = r => [r.facility, r.location || (r.area === 'Other' ? r.areaOther : r.area)].filter(Boolean).join(' – ');
+const describe = r => [r.injuryNature, r.bodyPart, r.objectSubstance && \`struck / harmed by \${r.objectSubstance}\`].filter(Boolean).join('; ') || String(r.whatHappened || '').slice(0, 120);
+const estName = () => (st.facility ? \`Piper Warehouse — Building \${st.facility}\` : 'Piper Warehouse — Atlanta Division (6021 & 6049)');
+
+function historyTab(rows) {
+  const cols = [
+    { label: 'Report #', key: 'id', cls: 'mono' },
+    { label: 'Date', key: 'date', type: 'date', cls: 't-date' },
+    { label: 'Bldg', key: 'facility' },
+    { label: 'Employee', key: 'employee' },
+    { label: 'Type', html: true, get: r => (r.types || []).map(t => badge(t, TYPE_TONE[t])).join(' ') },
+    { label: 'Category', get: r => otherText(r.categories, r.categoryOther), cls: 'clip' },
+    { label: 'What happened', key: 'whatHappened', cls: 'clip t-textarea' },
+    { label: 'Risk', get: r => String(r.risk || '').split(' — ')[0] },
+    { label: 'OSHA', html: true, get: r => (isRec(r) ? badge(CLASS_SHORT[classify(r)], 'bad') : r.recordable === 'TBD' ? badge('To decide', 'warn') : r.recordable === 'No' ? '<span class="muted small">Not recordable</span>' : '') },
+    { label: 'Status', html: true, get: r => badge(r.status || 'Open', STATUS_TONE[r.status || 'Open']) },
+    { label: 'Files', get: r => r.files || '', type: 'number' },
+    { label: 'OTIF', key: 'otifId', cls: 'mono' },
+  ];
+  const filters = st.q || st.status || st.type || st.rec;
+  return \`<div class="toolbar">
+      <input type="search" class="search" placeholder="Search reports — name, location, equipment, words…" value="\${esc(st.q)}" data-q aria-label="Search safety incident reports">
+      <select data-status aria-label="Status"><option value="">All statuses</option>\${STATUSES.map(s => \`<option\${s === st.status ? ' selected' : ''}>\${s}</option>\`).join('')}</select>
+      <select data-type aria-label="Incident type"><option value="">All types</option>\${TYPES.map(s => \`<option\${s === st.type ? ' selected' : ''}>\${s}</option>\`).join('')}</select>
+      <label class="inline small"><input type="checkbox" data-rec \${st.rec ? 'checked' : ''}> OSHA recordable only</label>
+      \${filters ? '<button type="button" class="btn ghost small" data-clear>Clear filters ✕</button>' : ''}
+      <span class="count" aria-live="polite">\${rows.length} report\${rows.length === 1 ? '' : 's'}</span><span class="grow"></span>
+      <button class="btn ghost" data-xlsx title="Download the reports shown as an Excel workbook">⬇ Export to Excel</button>
+      \${store.can('edit') ? '<button class="btn primary" data-new>+ New report</button>' : ''}</div>
+    <div class="log-scroll">\${table(cols, rows, { max: st.limit, rowAttr: r => \`data-id="\${esc(r.id)}" class="clickable" tabindex="0"\`, empty: filters ? 'No reports match these filters.' : \`No safety incident reports for \${esc(st.year)} yet.\` })}</div>
+    \${rows.length > st.limit ? \`<div class="more"><button class="btn ghost" data-more>Show more</button></div>\` : ''}\`;
+}
+
+function log300Tab(rec) {
+  const T = totals(rec), x = b => (b ? '✓' : '');
+  return \`<div class="toolbar"><span class="muted small"><b>OSHA Form 300</b> — Log of Work-Related Injuries and Illnesses · \${esc(st.year)} · \${esc(estName())}\${st.facility ? '' : ' <span class="badge warn">OSHA needs one log per establishment — pick a building</span>'}</span>
+      <span class="grow"></span><button class="btn ghost" data-x300>⬇ Export to Excel</button></div>
+    <div class="table-wrap"><table class="grid sf-300"><thead>
+      <tr class="grp"><th colspan="6">Identify the person &amp; describe the case</th><th colspan="4">Classify the case (most serious outcome)</th><th colspan="2">Number of days</th><th colspan="6">Injury or illness type</th></tr>
+      <tr><th>(A) Case no.</th><th>(B) Employee name</th><th>(C) Job title</th><th>(D) Date of injury / onset</th><th>(E) Where the event occurred</th><th>(F) Injury / illness, body part, object / substance</th>
+        <th>(G) Death</th><th>(H) Days away</th><th>(I) Transfer / restriction</th><th>(J) Other recordable</th><th>(K) Away from work</th><th>(L) Transfer / restriction</th>
+        <th>(M1) Injury</th><th>(M2) Skin disorder</th><th>(M3) Respiratory</th><th>(M4) Poisoning</th><th>(M5) Hearing loss</th><th>(M6) All other illnesses</th></tr></thead>
+      <tbody>\${rec.map(r => { const c = classify(r), t = r.oshaType || 'Injury'; return \`<tr data-id="\${esc(r.id)}" class="clickable" tabindex="0"><td class="mono">\${esc(caseNo(r))}</td><td>\${r.privacyCase === 'Y' ? '<i>Privacy Case</i>' : esc(r.employee)}</td><td>\${esc(r.jobTitle || '')}</td><td>\${esc(us(r.date))}</td><td>\${esc(where(r))}</td><td class="clip"><div class="clip-in" title="\${esc(describe(r))}">\${esc(describe(r))}</div></td>
+        <td class="c">\${x(c === 'Death')}</td><td class="c">\${x(c === 'Days away from work')}</td><td class="c">\${x(c === 'Job transfer or restriction')}</td><td class="c">\${x(c === 'Other recordable case')}</td>
+        <td class="num">\${cap(r.daysAway) || ''}</td><td class="num">\${cap(r.daysRestricted) || ''}</td>\${OSHA_TYPES.map(o => \`<td class="c">\${x(o === t)}</td>\`).join('')}</tr>\`; }).join('') || \`<tr><td colspan="18" class="empty">No OSHA recordable cases for \${esc(st.year)}\${st.facility ? ' in ' + esc(st.facility) : ''}.</td></tr>\`}</tbody>
+      <tfoot><tr><td colspan="6"><b>Page totals</b></td><td class="c">\${T.G}</td><td class="c">\${T.H}</td><td class="c">\${T.I}</td><td class="c">\${T.J}</td><td class="num">\${T.K}</td><td class="num">\${T.L}</td>\${T.M.map(n => \`<td class="c">\${n}</td>\`).join('')}</tr></tfoot></table></div>
+    <p class="xl-foot">Only cases marked “Recordable on the OSHA 300 Log = Yes” are listed. Classification is the most serious outcome (death › days away › job transfer / restriction › other). Days are capped at 180. Privacy cases show “Privacy Case” instead of the name — keep a separate confidential list of names. Click a row to open its report.</p>\`;
+}
+
+function summary300ATab(rec, h) {
+  const T = totals(rec), trir = rate(rec.length, h.hours), dart = rate(rec.filter(isDart).length, h.hours);
+  const box = (title, items) => \`<div class="sf-a-card"><h4>\${title}</h4>\${items.map(([k, v, code]) => \`<div class="sf-a-row"><span>\${code ? \`<b>(\${code})</b> \` : ''}\${k}</span><b>\${v}</b></div>\`).join('')}</div>\`;
+  return \`<div class="toolbar"><span class="muted small"><b>OSHA Form 300A</b> — Summary of Work-Related Injuries and Illnesses · \${esc(st.year)} · \${esc(estName())}\${st.facility ? '' : ' <span class="badge warn">Post one 300A per establishment — pick a building</span>'}</span>
+      <span class="grow"></span><button class="btn ghost" data-x300a>⬇ Export to Excel</button><button class="btn primary" data-print300a>🖨 Print 300A for posting</button></div>
+    <div class="sf-a-grid">
+      \${box('Number of cases', [['Total deaths', T.G, 'G'], ['Cases with days away from work', T.H, 'H'], ['Cases with job transfer or restriction', T.I, 'I'], ['Other recordable cases', T.J, 'J']])}
+      \${box('Number of days', [['Days away from work', fmtNum(T.K), 'K'], ['Days of job transfer or restriction', fmtNum(T.L), 'L']])}
+      \${box('Injury and illness types', ['Injuries', 'Skin disorders', 'Respiratory conditions', 'Poisonings', 'Hearing loss', 'All other illnesses'].map((k, i) => [k, T.M[i], 'M' + (i + 1)]))}
+      \${box('Establishment information', [['Establishment', esc(estName())], ['Industry', 'Warehousing and storage (NAICS 493)'], ['Annual average number of employees', h.avg ? fmtNum(h.avg) : '—'], ['Total hours worked by all employees', h.hours ? fmtNum(h.hours) : '—'], ['TRIR (recordables per 100 full-time workers)', trir != null ? trir.toFixed(2) : '—'], ['DART rate', dart != null ? dart.toFixed(2) : '—']])}
+    </div>
+    <p class="xl-foot">Hours worked and the average number of employees come from the Labor log (regular + OT hours, people with hours each week) for \${esc(st.year)}\${st.facility ? ' in building ' + esc(st.facility) : ''}\${h.weeks ? \` — \${h.weeks} weeks entered\` : ' — no Labor hours entered yet'}. Check them against payroll before certifying. TRIR = recordable cases × 200,000 ÷ hours; DART = cases with days away, restriction or transfer × 200,000 ÷ hours.</p>
+    <details class="sf-rules" open><summary>OSHA recordkeeping reminders</summary><ul>
+      <li>Enter each recordable case on the OSHA 300 Log and complete a 301 (this report) <b>within 7 calendar days</b> of learning about it.</li>
+      <li>Report directly to OSHA: a work-related <b>fatality within 8 hours</b>; an <b>in-patient hospitalization, amputation or loss of an eye within 24 hours</b> (1-800-321-OSHA or osha.gov).</li>
+      <li>A company executive certifies the 300A; <b>post it from February 1 to April 30</b> where notices to employees are posted.</li>
+      <li>Establishments that must submit electronically (OSHA ITA) send the 300A data <b>by March 2</b> — warehousing establishments with 20 or more employees are generally covered; confirm on osha.gov.</li>
+      <li>Keep the 300 Log, 300A and 301 reports for <b>5 years</b> after the year they cover.</li></ul></details>\`;
+}
+
+function print300A(rec, h) {
+  const T = totals(rec), w = window.open('', '_blank');
+  if (!w) return toast('The browser blocked the print window — allow pop-ups for this page', 'bad');
+  const r = (k, v) => \`<tr><td>\${k}</td><td class="n">\${v}</td></tr>\`;
+  w.document.write(\`<!doctype html><html><head><meta charset="utf-8"><title>OSHA 300A \${esc(st.year)} — \${esc(estName())}</title><style>
+    body{font:13px Calibri,Arial,sans-serif;color:#1c232d;margin:28px}h1{font-size:20px;margin:0}h2{font-size:14px;margin:18px 0 6px;border-bottom:3px solid #c0392b;padding-bottom:3px}
+    table{border-collapse:collapse;width:100%}td{border:1px solid #c8ced8;padding:5px 8px}.n{text-align:right;font-weight:700;width:120px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .sig td{height:34px;vertical-align:bottom}.muted{color:#5b6478;font-size:11px}</style></head><body>
+    <h1>OSHA Form 300A — Summary of Work-Related Injuries and Illnesses</h1><div class="muted">Year \${esc(st.year)} · \${esc(estName())} · Prepared \${esc(us(todayISO()))} from the Piper Warehouse Operations Dashboard. Use OSHA's official form for the posted copy if required.</div>
+    <div class="cols"><div><h2>Number of cases</h2><table>\${r('(G) Total number of deaths', T.G)}\${r('(H) Cases with days away from work', T.H)}\${r('(I) Cases with job transfer or restriction', T.I)}\${r('(J) Other recordable cases', T.J)}</table>
+    <h2>Number of days</h2><table>\${r('(K) Days away from work', T.K)}\${r('(L) Days of job transfer or restriction', T.L)}</table>
+    <h2>Injury and illness types</h2><table>\${r('(M1) Injuries', T.M[0])}\${r('(M2) Skin disorders', T.M[1])}\${r('(M3) Respiratory conditions', T.M[2])}\${r('(M4) Poisonings', T.M[3])}\${r('(M5) Hearing loss', T.M[4])}\${r('(M6) All other illnesses', T.M[5])}</table></div>
+    <div><h2>Establishment information</h2><table>\${r('Establishment name', esc(estName()))}\${r('Industry', 'Warehousing and storage (NAICS 493)')}\${r('Annual average number of employees', h.avg || '')}\${r('Total hours worked by all employees last year', h.hours ? Math.round(h.hours).toLocaleString() : '')}</table>
+    <h2>Certification</h2><p class="muted">I certify that I have examined this document and that to the best of my knowledge the entries are true, accurate, and complete.</p>
+    <table class="sig"><tr><td>Company executive</td><td></td></tr><tr><td>Title</td><td></td></tr><tr><td>Phone</td><td></td></tr><tr><td>Date</td><td></td></tr></table></div></div>
+    <p class="muted">Post from February 1 to April 30. Knowingly falsifying this document may result in a fine.</p></body></html>\`);
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+}
+
+export default {
+  needs: () => ['incidents', 'otif', 'labor', 'employees'],
+  render(p) {
+    const s = store.settings;
+    if (!st.year) st.year = String(s.reportingYear || new Date().getFullYear());
+    if (p.query.tab && ['history', 'osha300', 'osha300a'].includes(p.query.tab)) st.tab = p.query.tab;
+    const years = [...new Set([String(s.reportingYear), String(new Date().getFullYear()), st.year, ...store.rows('incidents').map(r => String(yearOf(r.date) || '')).filter(Boolean)])].sort().reverse();
+    const yr = scoped(st.year, st.facility), rec = yr.filter(isRec).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+    const h = hoursFor(st.year, st.facility), trir = rate(rec.length, h.hours), dartN = rec.filter(isDart).length, dart = rate(dartN, h.hours);
+    const T = totals(rec), facOk = r => !st.facility || String(r.facility) === st.facility;
+    const lastRec = store.rows('incidents').filter(r => isRec(r) && facOk(r)).map(r => r.date).filter(isISO).sort().at(-1);
+    const since = lastRec ? Math.max(0, Math.round((Date.parse(todayISO()) - Date.parse(lastRec)) / 864e5)) : null;
+    const open = store.rows('incidents').filter(r => (r.status || 'Open') !== 'Closed' && facOk(r));
+    const wait = otifWaiting().filter(facOk);
+    const pastDue = open.filter(r => (r.correctives || []).some(c => c.action && c.done !== 'Done' && c.due && c.due < todayISO())).length;
+    const n = t => yr.filter(r => (r.types || []).includes(t)).length;
+    const tiles = [
+      kpi('Reports · ' + st.year, fmtNum(yr.length), \`\${n('Near Miss')} near misses · \${n('Unsafe Condition') + n('Unsafe Act')} unsafe acts / conditions\`),
+      kpi('OSHA recordable cases', fmtNum(rec.length), trir != null ? \`TRIR \${trir.toFixed(2)} per 100 full-time workers\` : 'TRIR needs Labor log hours', rec.length ? 'bad' : 'good'),
+      kpi('DART cases', fmtNum(dartN), dart != null ? \`DART rate \${dart.toFixed(2)}\` : 'days away, restricted or transferred', dartN ? 'bad' : ''),
+      kpi('Days away · restricted', \`\${fmtNum(T.K)} <small>/ \${fmtNum(T.L)}</small>\`, 'calendar days, capped at 180 per case'),
+      kpi('Open reports', fmtNum(open.length), \`\${pastDue ? \`\${pastDue} with overdue actions · \` : ''}\${wait.length} missing a required report\`, open.length || wait.length ? 'warn' : 'good'),
+      kpi('Days since last recordable', since == null ? '—' : fmtNum(since), lastRec ? \`last case \${us(lastRec)}\` : 'none recorded', since == null || since >= 90 ? 'good' : ''),
+    ];
+    const waitCard = wait.length ? \`<section class="card sf-wait" aria-labelledby="sf-wait-h"><div class="card-head"><h2 id="sf-wait-h">Missing a required report — \${wait.length} Recordable Incident\${wait.length === 1 ? '' : 's'} on the OTIF Log</h2><span class="muted small">The Safety Incident / Near Miss Report (\${FORM_NO}) is required for every recordable incident. Fill it out now; it also goes on the OSHA 300 Log within 7 days.</span></div>
+      \${wait.map(o => \`<div class="sf-wait-row"><span class="mono"><a href="#/log/otif?ids=\${encodeURIComponent(o.id)}">\${esc(o.id)}</a></span><span>\${esc(us(o.date))}</span><span>\${esc(o.facility || '')}</span><span class="grow clip-in" title="\${esc(o.description || '')}">\${esc(o.responsible || '')}\${o.description ? ' — ' + esc(o.description) : ''}</span>
+        \${store.can('edit') ? \`<button type="button" class="btn primary small" data-fill="\${esc(o.id)}">Fill out the form</button>\` : ''}</div>\`).join('')}</section>\` : '';
+    const tab = (k, l) => \`<button type="button" role="tab" aria-selected="\${st.tab === k}" class="\${st.tab === k ? 'on' : ''}" data-tab="\${k}">\${l}</button>\`;
+    const body = st.tab === 'osha300' ? log300Tab(rec) : st.tab === 'osha300a' ? summary300ATab(rec, h) : historyTab(filtered());
+    return \`<div class="log-xl sf-xl">
+      <div class="xl-dash-head log-head">
+        <div class="xl-banner"><h1>PIPER WAREHOUSE&nbsp; | &nbsp;Safety Incidents &amp; OSHA Recordkeeping</h1><p>Every safety incident and near miss on the Safety Incident / Near Miss Report (\${FORM_NO}), with OSHA 301 details, the OSHA 300 Log and the 300A Summary. A Recordable Incident on the OTIF Log asks for this report. Click a row to open, update or email a report.</p></div>
+        <div class="xl-meta"><b>Year:</b><select data-year aria-label="Year">\${years.map(y => \`<option\${y === st.year ? ' selected' : ''}>\${y}</option>\`).join('')}</select>
+          <b>Building:</b><select data-fac aria-label="Building"><option value="">Both buildings</option>\${(s.lists.facilities || []).map(f => \`<option\${f === st.facility ? ' selected' : ''}>\${esc(f)}</option>\`).join('')}</select>
+          <span class="sp"></span>\${store.can('edit') ? '<button type="button" class="btn primary" data-new>+ New incident report</button>' : ''}</div>
+        <div class="log-insights"><div class="xl-tiles q" style="grid-template-columns:repeat(\${tiles.length}, minmax(0, 1fr))">\${tiles.join('')}</div>
+          <div class="log-chart split">\${frame(\`Reports by month &amp; type — \${esc(st.year)}\`, 'ch-sf', 250, 'Safety reports per month stacked by incident type')}\${frame('Reports by category', 'ch-sf-b', 250, 'Safety reports per category, most first')}</div></div>
+      </div>
+      \${waitCard}
+      <div class="sf-tabs" role="tablist" aria-label="Safety views">\${tab('history', 'Incident history')}\${tab('osha300', \`OSHA 300 Log <span class="sf-n">\${rec.length}</span>\`)}\${tab('osha300a', 'OSHA 300A Summary')}</div>
+      <section class="card log-card sf-card">\${body}</section></div>\`;
+  },
+  after(root, p, rerender) {
+    const yr = scoped(st.year, st.facility), months = MON.map((m, i) => \`\${st.year}-\${String(i + 1).padStart(2, '0')}\`);
+    chart('ch-sf', { type: 'bar', data: { labels: MON, datasets: TYPES.map(t => ({ label: t, data: months.map(m => yr.filter(r => String(r.date).startsWith(m) && (r.types || []).includes(t)).length), backgroundColor: TYPE_COL[t], stack: 's', borderRadius: 1 })) },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14 } }, tooltip: { filter: t => t.parsed.y > 0 } },
+        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Reports' } } } } });
+    const cats = CATEGORIES.map(c => [c, yr.filter(r => (r.categories || []).includes(c)).length]).filter(e => e[1]).sort((a, b) => b[1] - a[1]);
+    chart('ch-sf-b', { type: 'bar', data: { labels: cats.map(e => e[0]), datasets: [{ label: 'Reports', data: cats.map(e => e[1]), backgroundColor: '#c0392b', borderRadius: 3, maxBarThickness: 22 }] },
+      options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#eef0f4' } }, y: { grid: { display: false } } } } });
+
+    const saved = () => rerender();
+    const openById = id => { const r = store.rows('incidents').find(x => x.id === id); if (r) openIncidentForm(r, {}, { onSaved: saved }); };
+    $('[data-year]', root)?.addEventListener('change', e => { st.year = e.target.value; rerender(); });
+    $('[data-fac]', root)?.addEventListener('change', e => { st.facility = e.target.value; rerender(); });
+    $$('[data-new]', root).forEach(b => b.addEventListener('click', () => openIncidentForm(null, {}, { onSaved: saved })));
+    $$('[data-tab]', root).forEach(b => b.addEventListener('click', () => { st.tab = b.dataset.tab; if (location.hash.includes('tab=')) location.hash = '#/safety'; else rerender(); }));
+    $$('[data-fill]', root).forEach(b => b.addEventListener('click', () => { const o = store.rows('otif').find(r => r.id === b.dataset.fill); if (o) openIncidentForm(null, fromOtif(o), { onSaved: saved, required: true }); }));
+    const q = $('[data-q]', root); let t;
+    q?.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { st.q = q.value; st.limit = 200; rerender(); setTimeout(() => { const n = $('#main [data-q]'); n?.focus(); n?.setSelectionRange(n.value.length, n.value.length); }); }, 250); });
+    $('[data-status]', root)?.addEventListener('change', e => { st.status = e.target.value; rerender(); });
+    $('[data-type]', root)?.addEventListener('change', e => { st.type = e.target.value; rerender(); });
+    $('[data-rec]', root)?.addEventListener('change', e => { st.rec = e.target.checked; rerender(); });
+    $('[data-clear]', root)?.addEventListener('click', () => { Object.assign(st, { q: '', status: '', type: '', rec: false }); rerender(); });
+    $('[data-more]', root)?.addEventListener('click', () => { st.limit += 200; rerender(); });
+    for (const tb of $$('.sf-card tbody', root)) {
+      tb.addEventListener('click', e => { const tr = e.target.closest('tr[data-id]'); if (tr && !e.target.closest('a')) openById(tr.dataset.id); });
+      tb.addEventListener('keydown', e => { const tr = e.target.closest('tr[data-id]'); if (tr && e.key === 'Enter') openById(tr.dataset.id); });
+    }
+    const rec = yr.filter(isRec).sort((a, b) => String(a.date).localeCompare(String(b.date))), stamp = todayISO();
+    $('[data-xlsx]', root)?.addEventListener('click', () => {
+      const rows = filtered();
+      downloadXLSX(\`Safety Incidents \${stamp}.xlsx\`, 'Safety Incidents', ['Report #', 'Status', 'Date', 'Time', 'Facility', 'Area', 'Exact location', 'Reported by', 'Employee', 'Job title', 'Incident type', 'Category', 'What happened', 'What could have happened', 'Equipment', 'MHE / Trailer / Railcar #', 'Injured', 'Body part', 'Nature of injury', 'OSHA type', 'Treatment', 'OSHA recordable', 'Classification', 'Days away', 'Days restricted', 'Immediate actions', 'Contributing factors', 'Risk level', 'Witnesses', 'Corrective actions', 'Supervisor', 'Date closed', 'OTIF ref', 'Files'],
+        rows.map(r => [r.id, r.status || 'Open', r.date, r.time, r.facility, r.area === 'Other' ? r.areaOther || 'Other' : r.area, r.location, r.reportedBy, r.employee, r.jobTitle, typesText(r), otherText(r.categories, r.categoryOther), r.whatHappened, r.couldHappen,
+          (r.equipment || []).join(', '), r.equipmentNo, r.injured === 'Y' ? 'Yes' : r.injured === 'N' ? 'No' : '', r.bodyPart, r.injuryNature, r.oshaType, r.treatment, r.recordable === 'TBD' ? 'Not yet determined' : r.recordable, classify(r),
+          r.daysAway === '' || r.daysAway == null ? '' : cap(r.daysAway), r.daysRestricted === '' || r.daysRestricted == null ? '' : cap(r.daysRestricted), otherText(r.actions, r.actionsOther), otherText(r.factors, r.factorOther), r.risk,
+          (r.witnesses || []).map(w => w.name).filter(Boolean).join(', '), (r.correctives || []).map(c => \`\${c.action}\${c.responsible ? \` (\${c.responsible})\` : ''}\${c.due ? \` due \${c.due}\` : ''} – \${c.done || 'Open'}\`).join('\\n'), r.supName, r.dateClosed, r.otifId, r.files || 0]));
+      toast(\`Exported \${rows.length} report\${rows.length === 1 ? '' : 's'} to Excel\`);
+    });
+    $('[data-x300]', root)?.addEventListener('click', () => {
+      downloadXLSX(\`OSHA 300 Log \${st.year}\${st.facility ? ' ' + st.facility : ''}.xlsx\`, \`OSHA 300 \${st.year}\`, ['(A) Case no.', '(B) Employee name', '(C) Job title', '(D) Date of injury', '(E) Where the event occurred', '(F) Describe injury or illness', '(G) Death', '(H) Days away', '(I) Job transfer / restriction', '(J) Other recordable', '(K) Days away from work', '(L) Days of transfer / restriction', '(M1) Injury', '(M2) Skin disorder', '(M3) Respiratory condition', '(M4) Poisoning', '(M5) Hearing loss', '(M6) All other illnesses'],
+        rec.map(r => { const c = classify(r), ty = r.oshaType || 'Injury', x = b => (b ? 'X' : ''); return [caseNo(r), r.privacyCase === 'Y' ? 'Privacy Case' : r.employee, r.jobTitle, r.date, where(r), describe(r), x(c === 'Death'), x(c === 'Days away from work'), x(c === 'Job transfer or restriction'), x(c === 'Other recordable case'), cap(r.daysAway), cap(r.daysRestricted), ...OSHA_TYPES.map(o => x(o === ty))]; }));
+    });
+    $('[data-x300a]', root)?.addEventListener('click', () => {
+      const T = totals(rec), h = hoursFor(st.year, st.facility);
+      downloadXLSX(\`OSHA 300A \${st.year}\${st.facility ? ' ' + st.facility : ''}.xlsx\`, \`OSHA 300A \${st.year}\`, ['Item', 'Value'], [['Establishment', estName()], ['Year', +st.year], ['(G) Total deaths', T.G], ['(H) Cases with days away', T.H], ['(I) Cases with job transfer or restriction', T.I], ['(J) Other recordable cases', T.J], ['(K) Days away from work', T.K], ['(L) Days of job transfer or restriction', T.L],
+        ...OSHA_TYPES.map((t, i) => [\`(M\${i + 1}) \${t}\`, T.M[i]]), ['Annual average number of employees', h.avg], ['Total hours worked', Math.round(h.hours)]]);
+    });
+    $('[data-print300a]', root)?.addEventListener('click', () => print300A(rec, hoursFor(st.year, st.facility)));
+    // Links: #/safety?open=INC-0001 (global search), ?new=1, ?otif=OTIF-0042 (fill out the report for that entry).
+    const clean = () => history.replaceState(null, '', '#/safety');
+    if (p.query.open) { clean(); openById(p.query.open); }
+    else if (p.query.otif && store.can('edit')) { clean(); const o = store.rows('otif').find(r => r.id === p.query.otif); if (o) openIncidentForm(null, fromOtif(o), { onSaved: saved, required: true }); }
+    else if (p.query.new && store.can('edit')) { clean(); openIncidentForm(null, {}, { onSaved: saved }); }
+  },
+};`]);
+
 // ===================== views/scorecards.js =====================
 ATL_SRC.push(['@atl/views/scorecards.js', 0, `// Damage Scorecard + Attendance Scorecard.
 import { store } from '@atl/store.js';
@@ -4653,7 +4701,14 @@ const LIST_LABELS = {
   disciplineCategories: 'Discipline Categories', disciplineActions: 'Discipline Actions',
 };
 const ROLES = ['pending', 'viewer', 'supervisor', 'manager', 'admin'];
+const ACCESS_LABEL = { pending: 'No access', viewer: 'View only', supervisor: 'Supervisor (add & edit)', manager: 'Manager (also delete, HR)', admin: 'Admin (everything)' };
 let users = null;
+let draftHidden = [];   // pages hidden for the person being added
+let justAdded = null;   // { name, email, password } shown once after Add user
+const EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+const appLink = () => location.origin + location.pathname;
+const loginText = u => \`Atlanta Ops — Operations Dashboard\\nLink: \${appLink()}\\nEmail: \${u.email}\\nPassword: \${u.password}\\n\\nSign in with the email and password above. You can change your password with “Change password” at the bottom of the menu.\`;
+const loginMail = u => \`mailto:\${encodeURIComponent(u.email)}?subject=\${encodeURIComponent('Your Atlanta Ops dashboard sign-in')}&body=\${encodeURIComponent(\`Hi \${u.name || ''},\\n\\n\${loginText(u)}\`)}\`;
 
 /** Editable grid. cols: [{key, label, type: text|number|yn|select, options}] */
 function grid(name, cols, rows) {
@@ -4716,10 +4771,31 @@ export default {
     // Josh Piper and Omar Contreras (config.js ▸ adminEmails) are always admins: their role can't be changed here.
     const pagesCell = u => u.role === 'admin' ? '<span class="muted">All pages (admin)</span>'
       : \`<button type="button" class="btn ghost small" data-pages="\${esc(u.id)}">\${(u.hidden || []).length ? \`\${(u.hidden || []).length} hidden ▸\` : 'All pages ▸'}</button>\`;
-    const userBlock = users
-      ? \`<div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Pages they see</th></tr></thead><tbody>\${users.map(u => \`<tr><td>\${esc(u.name || '')}</td><td>\${esc(u.email || '')}</td><td>\${isAdminEmail(u.email) ? '<b>admin</b> <small class="muted">(always)</small>' : \`<select data-uid="\${esc(u.id)}" \${u.id === store.user.uid ? 'disabled' : ''}>\${ROLES.map(x => \`<option \${x === u.role ? 'selected' : ''}>\${x}</option>\`).join('')}</select>\`}</td><td>\${pagesCell(u)}</td></tr>\`).join('')}</tbody></table></div>
-         <p class="muted small"><b>viewer</b> sees dashboards and logs · <b>supervisor</b> adds/edits entries · <b>manager</b> also deletes and sees the Disciplinary Log &amp; attendance reasons · <b>admin</b> also manages settings, employees and users. New sign-ins start as <b>pending</b> until you give them a role. <b>Pages they see</b>: hide pages from one person (they leave their menu and open as “No access”); changes apply to them right away. Admins always see every page.</p>\`
+    // Authorized users: only people an admin adds here can sign in and open the app.
+    const shown = (users || []).filter(u => u.role && u.role !== 'none');
+    const accessCell = u => isAdminEmail(u.email) ? '<b>Admin</b> <small class="muted">(always)</small>'
+      : \`<select data-uid="\${esc(u.id)}" \${u.id === store.user.uid ? 'disabled' : ''}>\${ROLES.map(x => \`<option value="\${x}" \${x === u.role ? 'selected' : ''}>\${ACCESS_LABEL[x]}</option>\`).join('')}</select>\`;
+    const actions = u => [
+      u.email ? \`<button type="button" class="btn ghost small" data-reset="\${esc(u.email)}" title="Emails them a link to choose a new password">Reset password</button>\` : '',
+      isAdminEmail(u.email) || u.id === store.user.uid ? '' : \`<button type="button" class="icon-btn" data-remove="\${esc(u.id)}" title="Remove their access">✕</button>\`,
+    ].join(' ');
+    const userTable = users
+      ? \`<div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Pages they see</th><th></th></tr></thead><tbody>\${shown.map(u => \`<tr><td>\${esc(u.name || '')}</td><td>\${esc(u.email || '')}</td><td>\${accessCell(u)}</td><td>\${pagesCell(u)}</td><td class="nowrap">\${actions(u)}</td></tr>\`).join('') || '<tr><td colspan="5" class="muted">No users yet.</td></tr>'}</tbody></table></div>\`
       : '<p class="muted">Loading users…</p>';
+    const userBlock = \`<p class="muted small">Everyone signs in with their <b>email + password</b>. Add a person here with the password you give them, and choose their access. Only people listed here can open the app.</p>
+      <div class="form-grid" data-add-user>
+        <label class="field"><span>Name</span><input data-n="name" type="text" autocomplete="off"></label>
+        <label class="field"><span>Email</span><input data-n="email" type="email" placeholder="name@piperlogistics.com" autocomplete="off"></label>
+        <label class="field"><span>Password</span><input data-n="password" type="text" autocomplete="new-password" spellcheck="false"><small>At least 6 characters. They can change it later (Change password, bottom of the menu).</small></label>
+        <label class="field"><span>Access</span><select data-n="role">\${ROLES.filter(x => x !== 'pending').map(x => \`<option value="\${x}" \${x === 'viewer' ? 'selected' : ''}>\${ACCESS_LABEL[x]}</option>\`).join('')}</select></label>
+        <div class="field"><span>Pages they see</span><div><button type="button" class="btn ghost small" data-new-pages>\${draftHidden.length ? \`\${draftHidden.length} hidden ▸\` : 'All pages ▸'}</button></div></div>
+      </div>
+      <p><button type="button" class="btn primary" data-add-user-btn>Add user</button></p>
+      \${justAdded ? \`<div class="login-details"><b>Sign-in created for \${esc(justAdded.name || justAdded.email)}.</b> Give them these details — the password is shown only now:
+        <pre>\${esc(loginText(justAdded))}</pre>
+        <button type="button" class="btn ghost small" data-copy-login>Copy</button> <a class="btn ghost small" href="\${esc(loginMail(justAdded))}">✉ Email to them</a> <button type="button" class="btn ghost small" data-dismiss-login>Done</button></div>\` : ''}
+      <h3 class="sub-h">Authorized users</h3>\${userTable}
+      <p class="muted small"><b>View only</b> sees dashboards and logs · <b>Supervisor</b> also adds and edits entries · <b>Manager</b> also deletes and sees the Disciplinary Log &amp; attendance reasons · <b>Admin</b> also manages settings, employees and users. <b>Pages they see</b> hides pages from one person. Changes apply to them right away. <b>Reset password</b> emails them a link to choose a new one. ✕ removes their access (add the same email again to bring them back).</p>\`;
 
     return page('Settings & Lists', 'Targets, dropdown lists and masters. Save each block after editing.') +
       \`<form data-settings-form>\` +
@@ -4736,13 +4812,13 @@ export default {
       section('Employees', '<p>The roster lives in its own table. <a class="btn ghost small" href="#/log/employees">Open Employee Roster ›</a></p>') +
       (store.demo ? section('Users & roles', \`<p>Sign-in, users and page access start once the app is connected to the shared database (Firebase): until then this copy runs in Demo Mode, with its data only in this browser.</p>
         <p><button type="button" class="btn ghost small" data-export-all>Download this browser's data (backup) ▸</button></p>
-        <p class="muted small">Keep this backup to move the data into the shared database: after you sign in there as an admin, use Import Excel ▸ Load a backup.</p>\`) : section('Users & roles', userBlock)) +
+        <p class="muted small">Keep this backup to move the data into the shared database: after you sign in there as an admin, use Import Excel ▸ Load a backup.</p>\` + userBlock) : section('Users & access', userBlock)) +
       section('Import from Excel', '<p>Load (or reload) everything from the Rail OTIF KPI Dashboard workbook. <a class="btn ghost small" href="#/import">Open importer ›</a></p>');
   },
 
   after(root, p, rerender) {
     if (!store.can('admin')) return;
-    if (!users && !store.demo) store.listUsers().then(u => { users = u.sort((a, b) => (a.email || '').localeCompare(b.email || '')); rerender(); }).catch(e => toast(e.message, 'bad'));
+    if (!users) store.listUsers().then(u => { users = u.sort((a, b) => (a.email || '').localeCompare(b.email || '')); rerender(); }).catch(e => toast(e.message, 'bad'));
     root.addEventListener('click', e => {
       if (e.target.matches('[data-del-row]')) e.target.closest('tr').remove();
       const add = e.target.dataset.addRow;
@@ -4775,7 +4851,53 @@ export default {
     $$('[data-uid]', root).forEach(sel => sel.addEventListener('change', async e => {
       try { await store.setUserRole(e.target.dataset.uid, e.target.value); toast('Role updated'); users = null; rerender(); } catch (err) { toast(err.message, 'bad'); }
     }));
-    $$('[data-pages]', root).forEach(b => b.addEventListener('click', () => pagesDialog(users.find(u => u.id === b.dataset.pages), () => { users = null; rerender(); })));
+    $$('[data-pages]', root).forEach(b => b.addEventListener('click', () => {
+      const u = users.find(x => x.id === b.dataset.pages); if (!u) return;
+      pagesDialog({ title: u.name || u.email, role: u.role, hidden: u.hidden || [] }, h => store.setUserHidden(u.id, h), () => { users = null; rerender(); });
+    }));
+    $('[data-new-pages]', root)?.addEventListener('click', () => pagesDialog({ title: 'the new user', role: $('[data-n="role"]', root).value, hidden: draftHidden },
+      async h => { draftHidden = h; }, () => rerender()));
+    $('[data-add-user-btn]', root)?.addEventListener('click', async () => {
+      const val = k => $(\`[data-n="\${k}"]\`, root).value.trim();
+      const name = val('name'), email = val('email').toLowerCase(), password = $('[data-n="password"]', root).value, role = val('role');
+      if (!EMAIL_RE.test(email)) return toast('Enter a valid email address', 'bad');
+      if (isAdminEmail(email)) return toast(\`\${email} is always an admin — they set up their own sign-in with “Admin setup” on the sign-in page\`, 'bad');
+      const hidden = role === 'admin' ? [] : draftHidden;
+      const existing = (users || []).find(u => (u.email || '').toLowerCase() === email);
+      const btn = $('[data-add-user-btn]', root); btn.disabled = true;
+      try {
+        if (existing) {
+          // Already has a sign-in (maybe removed earlier): give the access back. Their password can't be set here.
+          await store.setUserDoc(existing.id, { name: name || existing.name || email, role, hidden });
+          toast(\`\${email} already has a sign-in — access set to \${ACCESS_LABEL[role]}. Use Reset password if they need a new password.\`);
+        } else {
+          if (password.length < 6) { btn.disabled = false; return toast('The password needs at least 6 characters', 'bad'); }
+          const uid = await store.createAccount(email, password);
+          await store.setUserDoc(uid, { email, name: name || email, role, hidden, addedBy: store.user?.email || '', createdAt: new Date().toISOString() });
+          justAdded = { name, email, password };
+          toast(\`\${email} added\`);
+        }
+        draftHidden = [];
+        users = null; rerender();
+      } catch (err) {
+        btn.disabled = false;
+        const c = err.code || err.message || '';
+        toast(/email-already-in-use/.test(c) ? \`\${email} already has a sign-in in Firebase but isn't on this list. Remove it in Firebase ▸ Authentication ▸ Users, then add them again.\`
+          : /weak-password|password-does-not-meet/.test(c) ? 'That password is too weak — use a longer one'
+          : /invalid-email/.test(c) ? 'That email address isn’t valid' : err.message.replace('Firebase: ', ''), 'bad');
+      }
+    });
+    $('[data-copy-login]', root)?.addEventListener('click', () => navigator.clipboard.writeText(loginText(justAdded)).then(() => toast('Copied')).catch(() => toast('Copy failed — select the text instead', 'bad')));
+    $('[data-dismiss-login]', root)?.addEventListener('click', () => { justAdded = null; rerender(); });
+    $$('[data-reset]', root).forEach(b => b.addEventListener('click', async () => {
+      if (!confirm(\`Email \${b.dataset.reset} a link to choose a new password?\`)) return;
+      try { await store.resetPassword(b.dataset.reset); toast('Password reset email sent'); } catch (err) { toast(err.message.replace('Firebase: ', ''), 'bad'); }
+    }));
+    $$('[data-remove]', root).forEach(b => b.addEventListener('click', async () => {
+      const u = users.find(x => x.id === b.dataset.remove); if (!u) return;
+      if (!confirm(\`Remove \${u.name || u.email}? Their sign-in will stop opening the app. You can add the same email again later.\`)) return;
+      try { await store.setUserDoc(u.id, { role: 'none', hidden: [] }); toast('Access removed'); users = null; rerender(); } catch (err) { toast(err.message, 'bad'); }
+    }));
     $('[data-export-all]', root)?.addEventListener('click', () => {
       const data = store.exportAll();
       downloadBlob(new Blob([JSON.stringify({ app: 'atl-ops', exported: new Date().toISOString(), data })], { type: 'application/json' }), \`Atlanta Ops backup \${todayISO()}.json\`);
@@ -4785,14 +4907,13 @@ export default {
 
 const stripDefaults = s => JSON.parse(JSON.stringify(s));
 
-/** Tick the pages one user sees; unticked pages are hidden from them (saved as users/{uid}.hidden). */
-function pagesDialog(u, done) {
-  if (!u) return;
+/** Tick the pages one person sees; unticked pages are hidden from them. save(hiddenKeys) stores the list. */
+function pagesDialog(u, save, done) {
   const hidden = new Set(u.hidden || []), groups = [...new Set(PAGES.map(p => p[2]))];
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = \`<form class="modal" novalidate>
-    <div class="modal-head"><h2>Pages \${esc(u.name || u.email)} sees</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
+    <div class="modal-head"><h2>Pages \${esc(u.title)} sees</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
     <p class="muted small">Untick a page to hide it from this person. Their role (\${esc(u.role || 'pending')}) still decides what they can change.</p>
     <div class="toolbar"><button type="button" class="btn ghost small" data-all>Tick all</button><button type="button" class="btn ghost small" data-none>Untick all</button></div>
     \${groups.map(g => \`<fieldset class="pg-group"><legend>\${esc(g)}</legend>\${PAGES.filter(p => p[2] === g).map(([key, label]) =>
@@ -4807,7 +4928,7 @@ function pagesDialog(u, done) {
   $('[data-none]', back).addEventListener('click', () => boxes.forEach(b => { b.checked = false; }));
   $('form', back).addEventListener('submit', async e => {
     e.preventDefault();
-    try { await store.setUserHidden(u.id, boxes.filter(b => !b.checked).map(b => b.value)); toast('Page access saved'); close(); done(); } catch (err) { toast(err.message, 'bad'); }
+    try { await save(boxes.filter(b => !b.checked).map(b => b.value)); toast('Page access saved'); close(); done(); } catch (err) { toast(err.message, 'bad'); }
   });
   boxes[0]?.focus();
 }`]);
