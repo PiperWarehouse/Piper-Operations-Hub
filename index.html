@@ -1584,6 +1584,50 @@ a.risk-card { display: block; color: var(--ink); text-decoration: none !importan
 .login-details { border: 1px solid #b7dfc6; background: #f1faf4; border-radius: 8px; padding: 10px 14px; margin: 6px 0 14px; font-size: 13px; }
 .login-details pre { white-space: pre-wrap; font-size: 13px; margin: 8px 0; background: #fff; border: 1px solid #e1e6ee; border-radius: 6px; padding: 8px 10px; }
 td.nowrap { white-space: nowrap; }
+
+/* ---------- MHE Fleet (#/mhe) — rail-style dashboard, operator certification cards ---------- */
+.mhe .rail-strip .rs-value.warn { color: #b9770e; }
+.mhe .rs-pair .table-wrap + .table-wrap { border-top: 1px solid var(--xl-line); }
+.mhe td.clip { max-width: 260px; }
+.mhe-pad { padding: 16px 20px; }
+.mhe-pad p { margin: 0 0 12px; color: var(--xl-ink2); line-height: 1.5; }
+.mhe-pad .table-wrap { margin: 14px 0 8px; }
+.mhe-sev { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; padding: 14px 16px 4px; }
+.mhe-sev-cell { border-radius: 8px; padding: 10px 12px; background: var(--line-2, #f1f3f7); display: flex; flex-direction: column; gap: 2px; }
+.mhe-sev-cell b { font-size: 20px; line-height: 1.1; color: var(--xl-ink); }
+.mhe-sev-cell span { font-size: 11.5px; font-weight: 600; color: var(--xl-muted); text-transform: uppercase; letter-spacing: .4px; }
+.mhe-sev-cell.bad { background: var(--bad-bg); } .mhe-sev-cell.bad b { color: var(--bad); }
+.mhe-sev-cell.warn { background: var(--warn-bg); } .mhe-sev-cell.warn b { color: var(--warn); }
+.mhe-sev-cell.good { background: var(--good-bg); } .mhe-sev-cell.good b { color: var(--good); }
+.mhe-sev-cell.info { background: var(--info-bg); } .mhe-sev-cell.info b { color: var(--info); }
+.mhe-op-tools { padding: 12px 20px 0; }
+.mhe-ops { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 14px; margin: 0 0 16px; }
+.mhe-op { background: #fff; border: 1px solid var(--xl-line); border-left: 4px solid var(--good); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.mhe-op.warn { border-left-color: var(--warn); } .mhe-op.bad { border-left-color: var(--bad); }
+.mhe-op header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.mhe-op h3 { margin: 0; font-size: 15px; color: var(--xl-ink); }
+.mhe-op header p { margin: 2px 0 0; font-size: 12px; color: var(--xl-muted); }
+.mhe-op-st { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
+.mhe-op-st small { font-size: 11.5px; color: var(--xl-ink2); max-width: 220px; }
+.mhe-warn { color: var(--warn); font-weight: 600; font-style: normal; }
+.mhe-cert { border-top: 1px solid var(--xl-line); padding: 9px 4px 8px; cursor: pointer; border-radius: 4px; }
+.mhe-cert:hover, .mhe-cert:focus-visible { background: #f7f8fa; outline: none; }
+.mhe-cert-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; color: var(--xl-ink2); }
+.mhe-cert-h b { color: var(--xl-ink); font-size: 13px; }
+.mhe-cert-h .grow { flex: 1; }
+.mhe-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 7px; }
+.mhe-step { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--xl-ink2); background: var(--good-bg); border-radius: 6px; padding: 3px 7px; }
+.mhe-step i { font-style: normal; font-weight: 800; color: var(--good); }
+.mhe-step b { font-weight: 600; color: var(--xl-ink); }
+.mhe-step.miss { background: var(--warn-bg); } .mhe-step.miss i { color: var(--warn); }
+.mhe-arrow { color: var(--xl-muted); font-size: 12px; }
+.mhe-note { margin: 6px 0 0; font-size: 12px; color: var(--xl-muted); }
+.mhe-cfg { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.mhe-cfg label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--xl-ink2); }
+.mhe-cfg input { width: 160px; }
+.mhe .log-card { margin-bottom: 16px; }
+.mhe .log-card .rs-title { margin: -16px -16px 12px; }
+@media (max-width: 640px) { .mhe-ops { grid-template-columns: minmax(0, 1fr); } .mhe-op header { flex-direction: column; } .mhe-op-st { align-items: flex-start; text-align: left; } }
 </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
@@ -1598,8 +1642,8 @@ td.nowrap { white-space: nowrap; }
 <script src="atl-3.js"></script>
 <script src="atl-4.js"></script>
 <script src="atl-5.js"></script>
-<script>window.APP_VERSION = { v: 'V49', built: '2026-11-09 14:25' };
-const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];</script>
+<script>window.APP_VERSION = { v: 'V51', built: '2026-11-09 17:34' };
+const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/mhe.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];</script>
 <script>
   // Loader: the atl-N.js files above put each module's source in ATL_SRC; turn them into an import map, then start.
   const parts = {};

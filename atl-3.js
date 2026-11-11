@@ -9,6 +9,7 @@ import {
   monthsBetween, timeToMin, num, norm, sum, groupCount, lastSaturday,
 } from '@atl/util.js';
 import { namesOf } from '@atl/throughput.js';
+import { assets as mheAssets, hoursRows as mheHours, serviceRows as mheService, operatorRows as mheOperators } from '@atl/mhe.js';
 
 // ---------- lookups ----------
 export function employeeIndex() {
@@ -53,7 +54,9 @@ export function truckTimes(r, cfg = truckCfg()) {
 const memo = new Map();
 export function derive(coll) {
   const src = store.rows(coll);
-  const deps = [src, store.settings, store.rail, store.rows('employees'), todayISO(), store.rows('elxConfig')];
+  // MHE rows also depend on the other MHE logs (register ← hours / service; hours ← register serials).
+  const deps = [src, store.settings, store.rail, store.rows('employees'), todayISO(), store.rows('elxConfig'),
+    ...(coll.startsWith('mhe') ? ['mheAssets', 'mheHours', 'mheService', 'mheConfig'].map(c => store.rows(c)) : [])];
   const m = memo.get(coll);
   if (m && m.deps.every((d, i) => d === deps[i])) return m.out;
   const out = (DERIVERS[coll] || (rows => rows))(src);
@@ -148,6 +151,11 @@ const DERIVERS = {
       return { ...r, ...t, diff: t.diff ?? '', onSite: t.onSite ?? '', held: r.direction === 'Out' ? (t.held ?? '') : '', heldOver: r.direction === 'Out' ? t.heldOver : '' };
     });
   },
+  // MHE Fleet (mhe.js reads the collections itself).
+  mheAssets: () => mheAssets(),
+  mheHours: () => mheHours(),
+  mheService: () => mheService(),
+  mheOperators: () => mheOperators(),
 };
 
 // ---------- monthly inputs ----------
