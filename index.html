@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Atlanta Ops V53 (built 11/11/2026 3:46 PM) - upload together with atl-1.js ... atl-5.js from the same build -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -1642,14 +1643,21 @@ td.nowrap { white-space: nowrap; }
 <script src="atl-3.js"></script>
 <script src="atl-4.js"></script>
 <script src="atl-5.js"></script>
-<script>window.APP_VERSION = { v: 'V51', built: '2026-11-09 17:34' };
-const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/mhe.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];</script>
+<script>window.APP_VERSION = { v: 'V53', built: '2026-11-11 15:46' };
+const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/mhe.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/home.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];
+const ATL_BUILD = 'V53 2026-11-11 15:46', ATL_FILES = ['atl-1.js', 'atl-2.js', 'atl-3.js', 'atl-4.js', 'atl-5.js'];</script>
 <script>
   // Loader: the atl-N.js files above put each module's source in ATL_SRC; turn them into an import map, then start.
   const parts = {};
   for (const [name, k, src] of window.ATL_SRC || []) (parts[name] ||= [])[k] = src;
   const missing = ATL_PARTS.filter(([name, n]) => !parts[name] || parts[name].filter(s => s !== undefined).length !== n).map(([name]) => name.slice(5));
-  if (missing.length) {
+  // Every atl-N.js must come from the same build as this index.html.
+  const builds = window.ATL_BUILDS || [];
+  const wrong = builds.filter(([, b]) => b !== ATL_BUILD).map(([f, b]) => `${f} is ${b.split(' ')[0]}`);
+  const absent = ATL_FILES.filter(f => !builds.some(([g]) => g === f));
+  if (wrong.length || absent.length) {
+    document.getElementById('app').innerHTML = `<div class="loading">This page is ${ATL_BUILD.split(' ')[0]}, but ${[...wrong, ...absent.map(f => `${f} is missing`)].join(', ')}. Upload all ${ATL_FILES.length + 1} files from the same GitHub upload folder (index.html and ${ATL_FILES.join(', ')}).</div>`;
+  } else if (missing.length) {
     document.getElementById('app').innerHTML = `<div class="loading">Some app files are missing or out of date (${missing.slice(0, 5).join(', ')}). Keep index.html and every atl-N.js file from the same build in one folder.</div>`;
   } else {
     const imports = {};
