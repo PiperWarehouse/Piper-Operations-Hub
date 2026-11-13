@@ -1,0 +1,13 @@
+Atlanta Ops V63, built 11/13/2026 7:36 AM.
+
+Upload these 7 files to GitHub (replace the old ones):
+  index.html
+  atl-1.js
+  atl-2.js
+  atl-3.js
+  atl-4.js
+  atl-5.js
+  atl-6.js
+
+Each file's first line says the same version. You don't need to upload this text file.
+If a file is left over from an older version, the live site says which one instead of opening.
