@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Atlanta Ops V90 (built 11/17/2026 1:51 PM) - upload together with atl-1.js ... atl-6.js from the same build -->
+<!-- Atlanta Ops V94 (built 11/19/2026 12:11 PM) - upload together with atl-1.js ... atl-6.js from the same build -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -2010,6 +2010,33 @@ dialog.mhe-ckl { width: min(720px, calc(100vw - 32px)); }
 .ld-people { columns: 3; column-gap: 18px; max-height: 220px; overflow-y: auto; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
 .ld-people label { display: flex; align-items: center; gap: 6px; break-inside: avoid; padding: 2px 0; cursor: pointer; }
 @media (max-width: 560px) { .ld-people { columns: 1; } }
+
+/* ---------- Scorecard trucks: inbound / outbound, each with a variance section ---------- */
+.trk-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.trk-dir { border: 1px solid var(--line, #dfe3ea); border-radius: 10px; padding: 12px 14px 14px; background: #fff; }
+.trk-h { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: var(--navy, #1a3a6b); }
+.trk-var { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line, #dfe3ea); }
+.trk-var h5 { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
+.trk-var h5 small { font-weight: 400; color: var(--ink-3, #5a6676); margin-left: 6px; }
+.trk-bands { max-width: 640px; }
+.trk-bands td.trk-bar-c { width: 45%; text-align: left; }
+.trk-bar { display: block; height: 10px; border-radius: 3px; min-width: 2px; }
+.trk-bar.ok { background: var(--good, #1a6b45); } .trk-bar.early { background: var(--info, #23599a); } .trk-bar.late { background: var(--warn, #8a4b00); }
+/* ---------- Customer History (#/customers) ---------- */
+.ch-xl .xl-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.ch-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 14px 0; }
+.ch-hl { margin: 4px 0 2px; padding-left: 20px; line-height: 1.6; font-size: 14px; }
+.ch-hl li { margin: 3px 0; }
+.ch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ch-grid .xl-chart { margin: 0; }
+.ch-rank tbody tr { cursor: pointer; }
+.ch-rank tbody tr:hover td { background: #f3f6fb; }
+.ch-spark { display: block; margin: 0 auto; }
+@media (max-width: 1000px) { .ch-grid { grid-template-columns: minmax(0, 1fr); } .ch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* ---------- Customer History: ship-to locations ---------- */
+.ch-note { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--warn, #8a4b00); background: #fdf6ec; border-radius: 6px; font-size: 13px; }
+.ch-review td { vertical-align: middle; }
+.ch-merged { margin: 6px 0 0; padding-left: 18px; line-height: 1.9; font-size: 13px; }.ch-long { display: block; font-size: 15px; line-height: 1.25; font-weight: 700; }
 </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
@@ -2019,15 +2046,15 @@ dialog.mhe-ckl { width: min(720px, calc(100vw - 32px)); }
 
 <script>{ const d = document.createElement('div'); d.className = 'brand-logo'; document.body.append(d);
   const u = (getComputedStyle(d).backgroundImage.match(/url\("?(.*?)"?\)/) || [])[1]; d.remove(); if (u) document.getElementById('atl-icon').href = u; }</script>
-<script src="atl-1.js?v=V90-202611171351"></script>
-<script src="atl-2.js?v=V90-202611171351"></script>
-<script src="atl-3.js?v=V90-202611171351"></script>
-<script src="atl-4.js?v=V90-202611171351"></script>
-<script src="atl-5.js?v=V90-202611171351"></script>
-<script src="atl-6.js?v=V90-202611171351"></script>
-<script>window.APP_VERSION = { v: 'V90', built: '2026-11-17 13:51' };
-const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/intake.js', 1], ['@atl/laborhist.js', 1], ['@atl/mhe.js', 1], ['@atl/mhedocs.js', 1], ['@atl/mheinvoice.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/trucks.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/labordups.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/mhechecklist.js', 1], ['@atl/views/mheforms.js', 1], ['@atl/views/mhereports.js', 1], ['@atl/views/mheunit.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/records.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];
-const ATL_BUILD = 'V90 2026-11-17 13:51', ATL_FILES = ['atl-1.js', 'atl-2.js', 'atl-3.js', 'atl-4.js', 'atl-5.js', 'atl-6.js'];</script>
+<script src="atl-1.js?v=V94-202611191211"></script>
+<script src="atl-2.js?v=V94-202611191211"></script>
+<script src="atl-3.js?v=V94-202611191211"></script>
+<script src="atl-4.js?v=V94-202611191211"></script>
+<script src="atl-5.js?v=V94-202611191211"></script>
+<script src="atl-6.js?v=V94-202611191211"></script>
+<script>window.APP_VERSION = { v: 'V94', built: '2026-11-19 12:11' };
+const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/hrpdf.js', 1], ['@atl/intake.js', 1], ['@atl/laborhist.js', 1], ['@atl/mhe.js', 1], ['@atl/mhedocs.js', 1], ['@atl/mheinvoice.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/trucks.js', 1], ['@atl/ui.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/customers.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/labordups.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/mhechecklist.js', 1], ['@atl/views/mheforms.js', 1], ['@atl/views/mhereports.js', 1], ['@atl/views/mheunit.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/records.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/trucksection.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];
+const ATL_BUILD = 'V94 2026-11-19 12:11', ATL_FILES = ['atl-1.js', 'atl-2.js', 'atl-3.js', 'atl-4.js', 'atl-5.js', 'atl-6.js'];</script>
 <script>
   // Loader: the atl-N.js files above put each module's source in ATL_SRC; turn them into an import map, then start.
   const parts = {};
