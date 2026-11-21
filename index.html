@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Atlanta Ops V138 (built 11/21/2026 11:20 AM) - upload together with atl-1.js ... atl-9.js from the same build -->
+<!-- Atlanta Ops V139 (built 11/21/2026 11:27 AM) - upload together with atl-1.js ... atl-9.js from the same build -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -2102,6 +2102,16 @@ dialog.mhe-ckl { width: min(720px, calc(100vw - 32px)); }
 /* Training records drop */
 .ts-thumbs { display: flex; flex-wrap: wrap; gap: 6px; } .ts-thumbs .mi-thumb { width: 92px; } .tr-drop { margin: 10px 0; } .tr-sheets { margin: 10px 0; font-size: 13px; } .tr-sheets ul { margin: 4px 0 0; padding-left: 18px; }
 .mhe-insp .mi-row:has(.ts-thumbs) { grid-template-columns: 200px 1fr; }
+
+/* Settings: floating "Save changes" (Nov 2026) - pops up next to the back-to-top arrow while there are unsaved edits. */
+.float-save { position: fixed; right: 70px; bottom: 18px; height: 42px; padding: 0 18px; border: 0; border-radius: 21px; background: var(--navy); color: #fff;
+  font: 600 14px/1 inherit; cursor: pointer; box-shadow: 0 4px 14px rgba(16,24,40,.25); z-index: 36; animation: float-save-in .18s ease-out; }
+.float-save:hover { background: var(--xl-red, #c0392b); }
+.float-save:focus-visible { outline: 3px solid #2f5590; outline-offset: 3px; }
+.float-save[hidden] { display: none; }
+@keyframes float-save-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .float-save { animation: none; } }
+@media print { .float-save { display: none; } }
 </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
@@ -2111,18 +2121,18 @@ dialog.mhe-ckl { width: min(720px, calc(100vw - 32px)); }
 
 <script>{ const d = document.createElement('div'); d.className = 'brand-logo'; document.body.append(d);
   const u = (getComputedStyle(d).backgroundImage.match(/url\("?(.*?)"?\)/) || [])[1]; d.remove(); if (u) document.getElementById('atl-icon').href = u; }</script>
-<script src="atl-1.js?v=V138-202611211120"></script>
-<script src="atl-2.js?v=V138-202611211120"></script>
-<script src="atl-3.js?v=V138-202611211120"></script>
-<script src="atl-4.js?v=V138-202611211120"></script>
-<script src="atl-5.js?v=V138-202611211120"></script>
-<script src="atl-6.js?v=V138-202611211120"></script>
-<script src="atl-7.js?v=V138-202611211120"></script>
-<script src="atl-8.js?v=V138-202611211120"></script>
-<script src="atl-9.js?v=V138-202611211120"></script>
-<script>window.APP_VERSION = { v: 'V138', built: '2026-11-21 11:20' };
+<script src="atl-1.js?v=V139-202611211127"></script>
+<script src="atl-2.js?v=V139-202611211127"></script>
+<script src="atl-3.js?v=V139-202611211127"></script>
+<script src="atl-4.js?v=V139-202611211127"></script>
+<script src="atl-5.js?v=V139-202611211127"></script>
+<script src="atl-6.js?v=V139-202611211127"></script>
+<script src="atl-7.js?v=V139-202611211127"></script>
+<script src="atl-8.js?v=V139-202611211127"></script>
+<script src="atl-9.js?v=V139-202611211127"></script>
+<script>window.APP_VERSION = { v: 'V139', built: '2026-11-21 11:27' };
 const ATL_PARTS = [['@atl/access.js', 1], ['@atl/app.js', 1], ['@atl/billing.js', 1], ['@atl/calc.js', 1], ['@atl/config.js', 1], ['@atl/electrolit.js', 1], ['@atl/elxsplit.js', 1], ['@atl/forms/archive.js', 1], ['@atl/forms/calloff.js', 1], ['@atl/forms/calloff-template.js', 1], ['@atl/forms/docx.js', 1], ['@atl/forms/elxreport.js', 1], ['@atl/forms/email.js', 1], ['@atl/forms/incident.js', 1], ['@atl/forms/kpireport.js', 1], ['@atl/forms/library.js', 2], ['@atl/forms/otifemail.js', 1], ['@atl/forms/policies.js', 1], ['@atl/forms/sopmatch.js', 1], ['@atl/forms/sops.js', 1], ['@atl/forms/writeup.js', 1], ['@atl/forms/writeup-template.js', 1], ['@atl/forms/wrreport.js', 1], ['@atl/goaudits.js', 1], ['@atl/hrpdf.js', 1], ['@atl/inmode.js', 1], ['@atl/intake.js', 1], ['@atl/laborhist.js', 1], ['@atl/libdocs.js', 1], ['@atl/loadhistory.js', 1], ['@atl/locate.js', 1], ['@atl/mhe.js', 1], ['@atl/mhedocs.js', 1], ['@atl/mheinsp.js', 1], ['@atl/mheinvoice.js', 1], ['@atl/opmoves.js', 1], ['@atl/railnotify.js', 1], ['@atl/schema.js', 1], ['@atl/sites.js', 1], ['@atl/store.js', 1], ['@atl/throughput.js', 1], ['@atl/training.js', 1], ['@atl/training/docx.js', 1], ['@atl/training/program.js', 3], ['@atl/trainscan.js', 1], ['@atl/trucks.js', 1], ['@atl/ui.js', 1], ['@atl/uploads.js', 1], ['@atl/util.js', 1], ['@atl/views/archive.js', 1], ['@atl/views/command.js', 1], ['@atl/views/customers.js', 1], ['@atl/views/dashboard.js', 1], ['@atl/views/docs.js', 1], ['@atl/views/electrolit.js', 1], ['@atl/views/empids.js', 1], ['@atl/views/importer.js', 1], ['@atl/views/inmodeview.js', 1], ['@atl/views/labordups.js', 1], ['@atl/views/logs.js', 1], ['@atl/views/mhe.js', 1], ['@atl/views/mhechecklist.js', 1], ['@atl/views/mheforms.js', 1], ['@atl/views/mheinspui.js', 1], ['@atl/views/mhereports.js', 1], ['@atl/views/mheunit.js', 1], ['@atl/views/monthly.js', 1], ['@atl/views/quality.js', 1], ['@atl/views/rail.js', 1], ['@atl/views/records.js', 1], ['@atl/views/safety.js', 1], ['@atl/views/scorecards.js', 1], ['@atl/views/settings.js', 1], ['@atl/views/training.js', 1], ['@atl/views/trainscanui.js', 1], ['@atl/views/trucksection.js', 1], ['@atl/views/uploadsui.js', 1], ['@atl/views/weekly.js', 1], ['@atl/views/westrock.js', 1], ['@atl/views/writeup.js', 1], ['@atl/westrock.js', 1]];
-const ATL_BUILD = 'V138 2026-11-21 11:20', ATL_FILES = ['atl-1.js', 'atl-2.js', 'atl-3.js', 'atl-4.js', 'atl-5.js', 'atl-6.js', 'atl-7.js', 'atl-8.js', 'atl-9.js'];</script>
+const ATL_BUILD = 'V139 2026-11-21 11:27', ATL_FILES = ['atl-1.js', 'atl-2.js', 'atl-3.js', 'atl-4.js', 'atl-5.js', 'atl-6.js', 'atl-7.js', 'atl-8.js', 'atl-9.js'];</script>
 <script>
   // Loader: the atl-N.js files above put each module's source in ATL_SRC; turn them into an import map, then start.
   const parts = {};
